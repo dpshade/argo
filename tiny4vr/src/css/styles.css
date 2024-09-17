@@ -1,0 +1,176 @@
+:root {
+    --bg-color: #0d0d0d;
+    --container-bg: #121212;
+    --input-bg: #3a3a3a;
+    --input-focus-bg: #2a2a2a;
+    --button-bg: #5cceff;
+    --button-hover-bg: #1fbcff;
+    --text-color: #ffffff;
+    --placeholder-color: #999;
+    --link-color: #5cceff;
+    --link-hover-color: #1fbcff;
+}
+
+body {
+    font-family: "Arial", sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+}
+
+.container {
+    background-color: var(--container-bg);
+    border-radius: 0.2rem;
+    padding: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    max-width: 400px;
+    width: 100%;
+}
+
+.logo {
+    max-width: 200px;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+}
+
+input[type="url"] {
+    padding: 10px;
+    margin-bottom: 15px;
+    border: none;
+    border-radius: 5px;
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+input[type="url"]:focus {
+    background-color: var(--input-focus-bg);
+    box-shadow: 0 0 0 2px rgba(92, 206, 255, 0.5);
+}
+
+input[type="url"]::placeholder {
+    color: var(--placeholder-color);
+}
+
+/* Autofill styles for both Webkit and Firefox */
+input[type="url"]:-webkit-autofill,
+input[type="url"]:-webkit-autofill:hover,
+input[type="url"]:-webkit-autofill:focus,
+input[type="url"]:autofill,
+input[type="url"]:autofill:hover,
+input[type="url"]:autofill:focus {
+    -webkit-text-fill-color: var(--text-color);
+    -webkit-box-shadow: 0 0 0px 1000px var(--input-focus-bg) inset;
+    transition: background-color 5000s ease-in-out 0s;
+    filter: none;
+}
+
+button {
+    padding: 10px 20px;
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+button:hover,
+#submitUrlButton:hover {
+    background-color: var(--button-hover-bg);
+}
+
+#result {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #1e1e1e;
+    border-radius: 5px;
+    border-left: 4px solid var(--button-bg);
+    font-size: 14px;
+    line-height: 1.4;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    overflow-x: auto;
+    animation: fadeIn 0.3s ease-out;
+}
+
+#result::before {
+    content: "🔗";
+    margin-right: 10px;
+    font-size: 18px;
+}
+
+#result a {
+    color: var(--link-color);
+    text-decoration: none;
+    font-weight: bold;
+    transition: color 0.3s ease;
+}
+
+#result a:hover {
+    color: var(--link-hover-color);
+    text-decoration: underline;
+}
+
+arweave-wallet-connection {
+    display: block;
+}
+
+.loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+}
+
+.loading {
+    width: 30px;
+    height: 30px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media screen and (max-width: 768px) {
+    body {
+        overflow: hidden;
+    }
+
+    .container {
+        max-height: 100vh;
+        overflow-y: auto;
+    }
+}
