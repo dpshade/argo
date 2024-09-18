@@ -1,24 +1,11 @@
 <template>
-    <div v-if="isLoading" class="loading-overlay">
+    <div v-if="store.isLoading" class="loading-overlay">
         <div class="loading-spinner"></div>
     </div>
 </template>
 
-<script>
-import { computed } from "vue";
-import { useStore } from "vuex";
-
-export default {
-    name: "LoadingScreen",
-    setup() {
-        const store = useStore();
-        const isLoading = computed(() => store.state.isLoading);
-
-        return {
-            isLoading,
-        };
-    },
-};
+<script setup>
+import { store } from "../store";
 </script>
 
 <style scoped>

@@ -4,7 +4,14 @@ export async function handleSearch(
   walletConnection,
   fallbackSearchEngine = "https://google.com/search?q=%s",
 ) {
-  const words = query.trim().split(/\s+/);
+  // Trim the query and check if it's a 43-character string (typical Arweave transaction ID length)
+  const trimmedQuery = query.trim();
+  if (trimmedQuery.length === 43 && /^[a-zA-Z0-9_-]+$/.test(trimmedQuery)) {
+    const viewBlockUrl = `https://viewblock.io/arweave/tx/${trimmedQuery}`;
+    return `Redirecting to: ${viewBlockUrl}`;
+  }
+
+  const words = trimmedQuery.split(/\s+/);
 
   if (bangs && bangs.length > 0) {
     // Check if the first word matches any of the defined bangs

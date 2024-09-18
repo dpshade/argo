@@ -1,28 +1,61 @@
 <script setup>
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, onUnmounted, watch } from "vue";
 import SearchBar from "./components/SearchBar.vue";
 import BangEditor from "./components/BangEditor.vue";
 import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
+import LoadingScreen from "./components/LoadingScreen.vue";
 import { ArweaveWalletConnection as AWC } from "./helpers/arweaveWallet.js";
 import { handleSearch } from "./helpers/searchLogic.js";
-import { getFallbackSearchEngine } from "./helpers/bangHelpers.js";
+import { getAllBangs, getFallbackSearchEngine } from "./helpers/bangHelpers.js";
+import { store } from "./store";
 
 const searchResult = ref("");
 const currentView = ref("search");
 const bangs = ref([]);
 const walletAddress = ref(null);
 const walletConnection = ref(null);
-const isLoading = ref(false);
 const searchBarRef = ref(null);
 const initialUrlParamsHandled = ref(false);
 const isHeadless = ref(false);
+const isDarkMode = ref(false);
+const isWalletConnected = ref(false);
+const fallbackSearchEngine = ref("https://google.com/search?q=%s");
+const bangEditorRef = ref(null);
+
+function handleKeyboardShortcut(event) {
+    // Check if cmd+k (Mac) or ctrl+k (Windows/Linux) is pressed
+    if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+        event.preventDefault(); // Prevent default browser behavior
+        currentView.value = "search";
+        if (searchBarRef.value) {
+            searchBarRef.value.focusInput();
+        }
+    }
+    // Check if cmd+e (Mac) or ctrl+e (Windows/Linux) is pressed
+    else if ((event.metaKey || event.ctrlKey) && event.key === "e") {
+        event.preventDefault(); // Prevent default browser behavior
+        if (isWalletConnected.value) {
+            currentView.value = "bangEditor";
+            // Use nextTick to ensure the BangEditor component is mounted
+            Vue.nextTick(() => {
+                if (bangEditorRef.value) {
+                    bangEditorRef.value.focusNewBangInput();
+                }
+            });
+        } else {
+            // Optionally, you can show a message or prompt to connect wallet
+            console.log("Please connect your wallet to access the bang editor");
+        }
+    }
+}
 
 async function onSearch(query) {
     const result = await handleSearch(
         query,
         bangs.value,
         walletConnection.value,
+        fallbackSearchEngine.value,
     );
     searchResult.value = result;
     if (result.startsWith("Redirecting to:")) {
@@ -32,11 +65,8 @@ async function onSearch(query) {
 }
 
 function toggleView() {
-    if (currentView.value === "search") {
-        currentView.value = "bangEditor";
-    } else {
-        currentView.value = "search";
-    }
+    currentView.value =
+        currentView.value === "search" ? "bangEditor" : "search";
 }
 
 function updateBangs(newBangs) {
@@ -46,42 +76,27 @@ function updateBangs(newBangs) {
 async function onWalletConnected(address) {
     walletAddress.value = address;
     walletConnection.value = AWC;
-
-    isLoading.value = true;
-    try {
-        await Promise.all([fetchBangs(), fetchFallbackSearchEngine()]);
-        console.log("Bangs and fallback search engine fetched successfully");
-    } catch (error) {
-        console.error("Error fetching bangs or fallback search engine:", error);
-    } finally {
-        isLoading.value = false;
-    }
-
+    isWalletConnected.value = true;
+    await fetchAndLoadData();
     if (searchBarRef.value) {
         searchBarRef.value.focusInput();
     }
 }
 
-async function onWalletDisconnected() {
-    walletAddress.value = null;
-    walletConnection.value = null;
-    bangs.value = { success: true, Bangs: [] };
-    fallbackSearchEngine.value = "https://google.com/search?q=%s";
-}
-
-async function fetchBangs() {
-    if (!walletConnection.value || !walletConnection.value.address) {
-        console.log("Wallet not connected. Skipping bang fetch.");
-        return;
-    }
+async function fetchAndLoadData() {
+    store.isLoading = true;
     try {
-        const result = await walletConnection.value.dryRunArweave(
-            [{ name: "Action", value: "ListBangs" }],
-            "",
-            AWC.BANG_PROCESS_ID,
-        );
-        if (result && result.Messages && result.Messages.length > 0) {
-            const bangsData = JSON.parse(result.Messages[0].Data);
+        const [bangsResult, fallbackResult] = await Promise.all([
+            getAllBangs(walletConnection.value),
+            getFallbackSearchEngine(walletConnection.value),
+        ]);
+
+        if (
+            bangsResult &&
+            bangsResult.Messages &&
+            bangsResult.Messages.length > 0
+        ) {
+            const bangsData = JSON.parse(bangsResult.Messages[0].Data);
             if (bangsData.success && Array.isArray(bangsData.Bangs)) {
                 bangs.value = bangsData.Bangs;
             } else {
@@ -92,11 +107,40 @@ async function fetchBangs() {
             console.warn("No bangs data received");
             bangs.value = [];
         }
+
+        if (
+            fallbackResult &&
+            fallbackResult.Messages &&
+            fallbackResult.Messages.length > 0
+        ) {
+            const fallbackData = JSON.parse(fallbackResult.Messages[0].Data);
+            if (fallbackData.success && fallbackData.url) {
+                fallbackSearchEngine.value = fallbackData.url;
+            } else {
+                console.warn(
+                    "Unexpected fallback search engine data structure:",
+                    fallbackData,
+                );
+            }
+        } else {
+            console.warn("No fallback search engine data received");
+        }
+
+        console.log("Bangs and fallback search engine fetched successfully");
     } catch (error) {
-        console.error("Error fetching bangs:", error);
-        bangs.value = [];
-        throw error;
+        console.error("Error fetching bangs or fallback search engine:", error);
+    } finally {
+        store.isLoading = false;
     }
+}
+
+async function onWalletDisconnected() {
+    walletAddress.value = null;
+    walletConnection.value = null;
+    isWalletConnected.value = false;
+    bangs.value = [];
+    fallbackSearchEngine.value = "https://google.com/search?q=%s";
+    currentView.value = "search";
 }
 
 async function handleUrlParams() {
@@ -123,46 +167,86 @@ async function initializeApp() {
 
 watch(() => window.location.search, handleUrlParams);
 
-const fallbackSearchEngine = ref("https://google.com/search?q=%s");
-
-async function fetchFallbackSearchEngine() {
-    if (!walletConnection.value) {
-        console.log(
-            "Wallet not connected. Skipping fallback search engine fetch.",
-        );
-        return;
-    }
-    try {
-        const result = await getFallbackSearchEngine(walletConnection.value);
-        console.log("Fallback search engine result:", result);
-        if (result && result.Messages && result.Messages.length > 0) {
-            const fallbackData = JSON.parse(result.Messages[0].Data);
-            if (fallbackData.success && fallbackData.url) {
-                fallbackSearchEngine.value = fallbackData.url;
-            } else {
-                console.warn(
-                    "Unexpected fallback search engine data structure:",
-                    fallbackData,
-                );
-            }
-        } else {
-            console.warn("No fallback search engine data received");
-        }
-    } catch (error) {
-        console.error("Error fetching fallback search engine:", error);
-    }
+function toggleDarkMode() {
+    isDarkMode.value = !isDarkMode.value;
+    document.body.classList.toggle("dark-mode", isDarkMode.value);
+    localStorage.setItem("darkMode", isDarkMode.value);
 }
 
 onMounted(async () => {
     await initializeApp();
+
+    const savedDarkMode = localStorage.getItem("darkMode");
+    if (savedDarkMode !== null) {
+        isDarkMode.value = JSON.parse(savedDarkMode);
+        document.body.classList.toggle("dark-mode", isDarkMode.value);
+    }
+
+    // Add the global event listener
+    window.addEventListener("keydown", handleKeyboardShortcut);
+});
+
+onUnmounted(() => {
+    // Remove the global event listener when the component is unmounted
+    window.removeEventListener("keydown", handleKeyboardShortcut);
 });
 </script>
 
 <template>
     <HeadlessRedirect v-if="isHeadless" />
     <template v-else>
+        <button
+            @click="toggleDarkMode"
+            class="dark-mode-toggle"
+            :aria-label="
+                isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'
+            "
+        >
+            <svg
+                v-if="isDarkMode"
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <svg
+                v-else
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <path
+                    d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+                ></path>
+            </svg>
+        </button>
         <div class="top-right">
-            <button @click="toggleView" class="toggle-button">
+            <button
+                @click="toggleView"
+                class="toggle-button"
+                v-if="isWalletConnected"
+            >
                 {{ currentView === "search" ? "Edit Bangs" : "Search" }}
             </button>
             <ArweaveWalletConnection
@@ -178,20 +262,20 @@ onMounted(async () => {
                 ref="searchBarRef"
             />
             <BangEditor
-                v-if="currentView === 'bangEditor'"
+                v-if="currentView === 'bangEditor' && isWalletConnected"
                 :bangs="bangs"
                 :walletConnection="walletConnection"
                 @update:bangs="updateBangs"
+                ref="bangEditorRef"
             />
             <div v-if="searchResult && showResult" class="result fade-out">
                 <!-- {{ searchResult }} -->
             </div>
         </div>
-        <div v-if="isLoading" class="loading-overlay">
-            <div class="loading-spinner"></div>
-        </div>
     </template>
+    <LoadingScreen />
 </template>
+
 <style>
 :root {
     --bg-color: #ffffff;
@@ -206,6 +290,22 @@ onMounted(async () => {
     --link-color: #8b7355;
     --link-hover-color: #6b5a40;
     --border-color: #e0e0e0;
+}
+
+/* Dark mode styles with purple-ish accents */
+body.dark-mode {
+    --bg-color: #121212;
+    --container-bg: #1e1e1e;
+    --input-bg: #2a2a2a;
+    --input-focus-bg: #333333;
+    --button-bg: #623ba5; /* Purple-ish button color */
+    --button-hover-bg: #9575cd; /* Lighter purple for button hover */
+    --header-text-color: #b39ddb; /* Light purple for header text */
+    --text-color: #ffffff;
+    --placeholder-color: #888888;
+    --link-color: #ce93d8; /* Light purple for links */
+    --link-hover-color: #e1bee7; /* Lighter purple for link hover */
+    --border-color: #333333;
 }
 
 body,
@@ -248,7 +348,7 @@ body {
 h1 {
     color: var(--text-color);
     text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 40px;
     font-size: 2.5rem;
     font-weight: 300;
 }
@@ -277,13 +377,14 @@ h1 {
 }
 
 button {
-    padding: 10px 20px;
+    padding: 10px 16px;
     background-color: var(--button-bg);
     color: white;
     border: none;
     cursor: pointer;
     transition: background-color 0.3s;
-    font-size: 16px; /* Ensure consistent font size */
+    font-size: 16px;
+    border-radius: 5px;
 }
 
 button:hover {
@@ -342,6 +443,28 @@ button:hover {
     }
 }
 
+.dark-mode-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1000;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+    transition: background-color 0.3s;
+    color: var(--text-color);
+}
+
+.dark-mode-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark-mode-toggle svg {
+    display: block;
+}
+
 @media screen and (max-width: 768px) {
     #app {
         padding: 10px;
@@ -349,7 +472,6 @@ button:hover {
 
     .container {
         padding: 20px;
-        margin-top: 100px;
     }
 
     .top-right {
@@ -364,6 +486,11 @@ button:hover {
 
     h1 {
         font-size: 2rem;
+    }
+
+    .dark-mode-toggle {
+        top: 10px;
+        left: 10px;
     }
 }
 </style>

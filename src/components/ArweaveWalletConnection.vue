@@ -294,8 +294,8 @@ h2 {
 .connect-option {
     display: flex;
     align-items: center;
-    margin: 1rem 0;
     height: 56px;
+    padding: 1rem;
 }
 
 .connect-option:hover {

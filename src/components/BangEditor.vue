@@ -10,6 +10,7 @@ import {
     updateFallbackSearchEngine,
 } from "../helpers/bangHelpers.js";
 import { ArweaveWalletConnection } from "../helpers/arweaveWallet";
+import LoadingScreen from "./LoadingScreen.vue";
 import { store } from "../store";
 
 const props = defineProps({
@@ -40,6 +41,14 @@ watch(
     { immediate: true },
 );
 
+const newBangNameInput = ref(null);
+
+function focusNewBangInput() {
+    if (newBangNameInput.value) {
+        newBangNameInput.value.focus();
+    }
+}
+
 function editBang(index) {
     const bang = localBangs.value[index];
     bang.editing = true;
@@ -57,11 +66,9 @@ function cancelEdit(index) {
 async function fetchBangs() {
     if (!store.walletConnection) {
         console.log("Wallet not connected. Skipping bang fetch.");
-        isLoading.value = false;
         return;
     }
     try {
-        isLoading.value = true;
         const result = await store.walletConnection.dryRunArweave(
             [{ name: "Action", value: "ListBangs" }],
             "",
@@ -86,8 +93,6 @@ async function fetchBangs() {
         console.error("Error fetching bangs:", error);
         localBangs.value = [];
         updateBangs();
-    } finally {
-        isLoading.value = false;
     }
 }
 
@@ -101,7 +106,7 @@ async function addNewBang() {
             );
             newBangName.value = "";
             newBangUrl.value = "";
-            await fetchBangs();
+            await fetchAllData();
         } catch (error) {
             console.error("Error adding bang:", error);
         }
@@ -116,8 +121,8 @@ async function saveBang(index) {
         );
         const result = await updateBang(
             ArweaveWalletConnection,
-            bang.name, // old name
-            bang.editName, // new name
+            bang.name,
+            bang.editName,
             bang.editUrl,
         );
         console.log("Save bang result:", result);
@@ -131,7 +136,7 @@ async function saveBang(index) {
         bang.editing = false;
         delete bang.editName;
         delete bang.editUrl;
-        await fetchBangs();
+        await fetchAllData();
     } catch (error) {
         console.error("Error saving bang:", error);
         alert(`Failed to save bang: ${error.message}`);
@@ -142,7 +147,7 @@ async function removeBang(index) {
     const bang = localBangs.value[index];
     try {
         await deleteBang(ArweaveWalletConnection, bang.name);
-        await fetchBangs();
+        await fetchAllData();
     } catch (error) {
         console.error("Error deleting bang:", error);
     }
@@ -186,22 +191,32 @@ async function saveFallbackSearchEngine() {
         setTimeout(() => {
             showFallbackSuccess.value = false;
         }, 3000);
+        await fetchAllData();
     } catch (error) {
         console.error("Error updating fallback search engine:", error);
         alert(`Failed to update fallback search engine: ${error.message}`);
     }
 }
 
+async function fetchAllData() {
+    store.isLoading = true;
+    try {
+        await Promise.all([fetchBangs(), fetchFallbackSearchEngine()]);
+    } catch (error) {
+        console.error("Error fetching data:", error);
+    } finally {
+        store.isLoading = false;
+    }
+}
+
+defineExpose({ focusNewBangInput });
+
 onMounted(async () => {
-    await fetchBangs();
-    await fetchFallbackSearchEngine();
+    await fetchAllData();
 });
 </script>
 
 <template>
-    <div v-if="isLoading" class="loading-overlay">
-        <div class="loading-spinner"></div>
-    </div>
     <div class="bang-editor">
         <h2>Edit Bangs</h2>
         <ul class="bang-list">
@@ -211,8 +226,12 @@ onMounted(async () => {
                 :class="{ editing: bang.editing }"
             >
                 <template v-if="!bang.editing">
-                    <span class="bang-name">{{ bang.name }}</span>
-                    <span class="bang-url">{{ bang.url }}</span>
+                    <span class="bang-name" @click="editBang(index)">{{
+                        bang.name
+                    }}</span>
+                    <span class="bang-url" @click="editBang(index)">{{
+                        bang.url
+                    }}</span>
                     <div class="bang-actions">
                         <button
                             @click="editBang(index)"
@@ -254,12 +273,14 @@ onMounted(async () => {
                         placeholder="Bang name"
                         class="bang-name-edit"
                         required
+                        @keyup.enter="saveBang(index)"
                     />
                     <input
                         v-model="bang.editUrl"
                         placeholder="URL"
                         class="bang-url-edit"
                         required
+                        @keyup.enter="saveBang(index)"
                     />
                     <div class="bang-actions">
                         <button
@@ -299,7 +320,12 @@ onMounted(async () => {
             </li>
         </ul>
         <form @submit.prevent="addNewBang" class="add-bang-form">
-            <input v-model="newBangName" placeholder="Bang name" required />
+            <input
+                v-model="newBangName"
+                placeholder="Bang name"
+                required
+                ref="newBangNameInput"
+            />
             <input
                 v-model="newBangUrl"
                 placeholder="URL (use %s for query)"
@@ -325,6 +351,7 @@ onMounted(async () => {
             </form>
         </div>
     </div>
+    <LoadingScreen />
 </template>
 
 <style scoped>
@@ -390,6 +417,16 @@ h2 {
     width: 20%;
 }
 
+.bang-name,
+.bang-url {
+    cursor: pointer;
+}
+
+.bang-name:hover,
+.bang-url:hover {
+    text-decoration: underline;
+}
+
 .bang-url {
     color: var(--text-color);
     word-break: break-all;
@@ -426,12 +463,19 @@ h2 {
 .icon-button svg {
     width: 20px;
     height: 20px;
+    padding: 2px;
     fill: var(--text-color);
     transition: fill 0.3s;
 }
 
-.icon-button:hover svg {
-    fill: var(--button-bg);
+.icon-button:hover .edit-button svg {
+    background-color: var(--button-hover-bg);
+    fill: white;
+}
+
+.delete-button:hover {
+    background-color: red;
+    fill: white;
 }
 
 .add-bang-form {
