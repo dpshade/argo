@@ -30,7 +30,7 @@ defineExpose({ focusInput });
             ref="searchInput"
             type="text"
             v-model="query"
-            placeholder="Search, use a bang, paste a TxID"
+            placeholder="Search, !bang, or TxID"
             required
         />
         <button type="submit">Search</button>

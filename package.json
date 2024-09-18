@@ -22,7 +22,8 @@
     "quick-wallet": "^0.3.1",
     "rollup-plugin-node-builtins": "^2.1.2",
     "vite-plugin-node-polyfills": "^0.22.0",
-    "vue": "^3.4.37"
+    "vue": "^3.4.37",
+    "vue-router": "4"
   },
   "devDependencies": {
     "@esbuild-plugins/node-globals-polyfill": "^latest",

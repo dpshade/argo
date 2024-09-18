@@ -44,6 +44,8 @@ const checkAccess = async (link) => {
 };
 
 export const checkArNSRecord = async (domain) => {
+  console.log("Undername result");
+  console.log(await getUndername(domain));
   const cachedRecord = localStorage.getItem(`arnsRecord_${domain}`);
   if (cachedRecord) {
     const { exists, timestamp } = JSON.parse(cachedRecord);
@@ -53,9 +55,11 @@ export const checkArNSRecord = async (domain) => {
   }
 
   try {
+    // Allow underscores in the domain name
     const record = await io.getArNSRecord({ name: domain });
     const exists = record !== null;
     console.log("Found ArNS record:", domain);
+    console.log(record);
     localStorage.setItem(
       `arnsRecord_${domain}`,
       JSON.stringify({ exists, timestamp: Date.now() }),
@@ -125,6 +129,7 @@ export const resolveArNSDomain = async (domain) => {
 
   for (const gateway of sortedGateways) {
     if (gateway.settings?.fqdn) {
+      // Allow underscores in the domain when constructing the link
       const link = `https://${domain}.${gateway.settings.fqdn}`;
       const result = await checkAccess(link);
       if (result.status) {
@@ -142,4 +147,18 @@ export const resolveArNSDomain = async (domain) => {
     JSON.stringify({ url: null, timestamp: Date.now() }),
   );
   return null;
+};
+
+export const getUndername = async (domain) => {
+  try {
+    const record = await io.getArNSRecord({ name: domain });
+    if (record && record.processId) {
+      console.log(record);
+    }
+    console.log(`No undername found for domain: ${domain}`);
+    return null;
+  } catch (error) {
+    console.error(`Error getting undername for ${domain}:`, error);
+    return null;
+  }
 };

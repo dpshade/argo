@@ -6,6 +6,9 @@
 
 <script setup>
 import { store } from "../store";
+import { inject } from "vue";
+
+const isInitialized = inject("isInitialized");
 </script>
 
 <style scoped>

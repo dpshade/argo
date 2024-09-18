@@ -1,22 +1,21 @@
 <script setup>
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, nextTick } from "vue";
 import {
     createBang,
-    getAllBangs,
     updateBang,
     deleteBang,
-    BANG_PROCESS_ID,
-    getFallbackSearchEngine,
     updateFallbackSearchEngine,
 } from "../helpers/bangHelpers.js";
 import { ArweaveWalletConnection } from "../helpers/arweaveWallet";
-import LoadingScreen from "./LoadingScreen.vue";
-import { store } from "../store";
 
 const props = defineProps({
     bangs: {
         type: Array,
         default: () => [],
+    },
+    fallbackSearchEngine: {
+        type: String,
+        default: "",
     },
     walletConnection: {
         type: Object,
@@ -30,14 +29,20 @@ const localBangs = ref([]);
 const fallbackSearchEngine = ref("");
 const newBangName = ref("");
 const newBangUrl = ref("");
-const isLoading = ref(true);
 const showFallbackSuccess = ref(false);
 
-// Use a watcher to update localBangs when props.bangs changes
 watch(
     () => props.bangs,
     (newBangs) => {
         localBangs.value = JSON.parse(JSON.stringify(newBangs));
+    },
+    { immediate: true },
+);
+
+watch(
+    () => props.fallbackSearchEngine,
+    (newFallback) => {
+        fallbackSearchEngine.value = newFallback;
     },
     { immediate: true },
 );
@@ -50,11 +55,26 @@ function focusNewBangInput() {
     }
 }
 
-function editBang(index) {
+function getClickPosition(element, x) {
+    const rect = element.getBoundingClientRect();
+    const leftPadding = parseInt(getComputedStyle(element).paddingLeft, 10);
+    return Math.round((x - rect.left - leftPadding) / 7); // Assuming average char width of 7px
+}
+
+function editBang(index, field, event) {
     const bang = localBangs.value[index];
     bang.editing = true;
     bang.editName = bang.name;
     bang.editUrl = bang.url;
+
+    nextTick(() => {
+        const inputElement = document.getElementById(`bang-${field}-${index}`);
+        if (inputElement) {
+            inputElement.focus();
+            const clickPosition = getClickPosition(event.target, event.clientX);
+            inputElement.setSelectionRange(clickPosition, clickPosition);
+        }
+    });
 }
 
 function cancelEdit(index) {
@@ -62,39 +82,6 @@ function cancelEdit(index) {
     bang.editing = false;
     delete bang.editName;
     delete bang.editUrl;
-}
-
-async function fetchBangs() {
-    if (!store.walletConnection) {
-        console.log("Wallet not connected. Skipping bang fetch.");
-        return;
-    }
-    try {
-        const result = await store.walletConnection.dryRunArweave(
-            [{ name: "Action", value: "ListBangs" }],
-            "",
-            BANG_PROCESS_ID,
-        );
-        if (result && result.Messages && result.Messages.length > 0) {
-            const bangsData = JSON.parse(result.Messages[0].Data);
-            if (bangsData.success && Array.isArray(bangsData.Bangs)) {
-                localBangs.value = bangsData.Bangs;
-                updateBangs();
-            } else {
-                console.warn("Unexpected bangs data structure:", bangsData);
-                localBangs.value = [];
-                updateBangs();
-            }
-        } else {
-            console.warn("No bangs data received");
-            localBangs.value = [];
-            updateBangs();
-        }
-    } catch (error) {
-        console.error("Error fetching bangs:", error);
-        localBangs.value = [];
-        updateBangs();
-    }
 }
 
 async function addNewBang() {
@@ -107,7 +94,7 @@ async function addNewBang() {
             );
             newBangName.value = "";
             newBangUrl.value = "";
-            await fetchAllData();
+            emit("force-update");
         } catch (error) {
             console.error("Error adding bang:", error);
         }
@@ -137,7 +124,6 @@ async function saveBang(index) {
         bang.editing = false;
         delete bang.editName;
         delete bang.editUrl;
-        await fetchAllData();
         emit("force-update");
     } catch (error) {
         console.error("Error saving bang:", error);
@@ -149,7 +135,6 @@ async function removeBang(index) {
     const bang = localBangs.value[index];
     try {
         await deleteBang(ArweaveWalletConnection, bang.name);
-        await fetchAllData();
         emit("force-update");
     } catch (error) {
         console.error("Error deleting bang:", error);
@@ -158,30 +143,6 @@ async function removeBang(index) {
 
 function updateBangs() {
     emit("update:bangs", JSON.parse(JSON.stringify(localBangs.value)));
-}
-
-async function fetchFallbackSearchEngine() {
-    try {
-        const result = await getFallbackSearchEngine(ArweaveWalletConnection);
-        if (result && result.Messages && result.Messages.length > 0) {
-            const fallbackData = JSON.parse(result.Messages[0].Data);
-            if (fallbackData.success && fallbackData.url) {
-                fallbackSearchEngine.value = fallbackData.url;
-            } else {
-                console.warn(
-                    "Unexpected fallback search engine data structure:",
-                    fallbackData,
-                );
-                fallbackSearchEngine.value = "";
-            }
-        } else {
-            console.warn("No fallback search engine data received");
-            fallbackSearchEngine.value = "";
-        }
-    } catch (error) {
-        console.error("Error fetching fallback search engine:", error);
-        fallbackSearchEngine.value = "";
-    }
 }
 
 async function saveFallbackSearchEngine() {
@@ -194,7 +155,6 @@ async function saveFallbackSearchEngine() {
         setTimeout(() => {
             showFallbackSuccess.value = false;
         }, 3000);
-        await fetchAllData();
         emit("force-update");
     } catch (error) {
         console.error("Error updating fallback search engine:", error);
@@ -202,22 +162,7 @@ async function saveFallbackSearchEngine() {
     }
 }
 
-async function fetchAllData() {
-    store.isLoading = true;
-    try {
-        await Promise.all([fetchBangs(), fetchFallbackSearchEngine()]);
-    } catch (error) {
-        console.error("Error fetching data:", error);
-    } finally {
-        store.isLoading = false;
-    }
-}
-
 defineExpose({ focusNewBangInput });
-
-onMounted(async () => {
-    await fetchAllData();
-});
 </script>
 
 <template>
@@ -230,15 +175,19 @@ onMounted(async () => {
                 :class="{ editing: bang.editing }"
             >
                 <template v-if="!bang.editing">
-                    <span class="bang-name" @click="editBang(index)">{{
-                        bang.name
-                    }}</span>
-                    <span class="bang-url" @click="editBang(index)">{{
-                        bang.url
-                    }}</span>
+                    <span
+                        class="bang-name"
+                        @click="(e) => editBang(index, 'name', e)"
+                        >{{ bang.name }}</span
+                    >
+                    <span
+                        class="bang-url"
+                        @click="(e) => editBang(index, 'url', e)"
+                        >{{ bang.url }}</span
+                    >
                     <div class="bang-actions">
                         <button
-                            @click="editBang(index)"
+                            @click="(e) => editBang(index, 'name', e)"
                             class="icon-button edit-button"
                         >
                             <svg
@@ -273,6 +222,7 @@ onMounted(async () => {
                 </template>
                 <template v-else>
                     <input
+                        :id="`bang-name-${index}`"
                         v-model="bang.editName"
                         placeholder="Bang name"
                         class="bang-name-edit"
@@ -280,6 +230,7 @@ onMounted(async () => {
                         @keyup.enter="saveBang(index)"
                     />
                     <input
+                        :id="`bang-url-${index}`"
                         v-model="bang.editUrl"
                         placeholder="URL"
                         class="bang-url-edit"
@@ -355,7 +306,6 @@ onMounted(async () => {
             </form>
         </div>
     </div>
-    <LoadingScreen />
 </template>
 
 <style scoped>
@@ -413,6 +363,7 @@ h2 {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    border-radius: 5px;
 }
 
 .bang-name {
@@ -421,15 +372,14 @@ h2 {
     width: 20%;
 }
 
-.bang-name,
+/* .bang-name,
 .bang-url {
-    cursor: pointer;
-}
+} */
 
-.bang-name:hover,
+/* .bang-name:hover,
 .bang-url:hover {
     text-decoration: underline;
-}
+} */
 
 .bang-url {
     color: var(--text-color);
@@ -493,12 +443,14 @@ input {
     border: none;
     background-color: var(--input-bg);
     color: var(--text-color);
+    border-radius: 5px;
 }
 
 input:focus {
     outline: none;
     box-shadow: none;
     background-color: var(--input-focus-bg);
+    border-radius: 5px;
 }
 
 button {

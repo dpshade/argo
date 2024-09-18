@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from "vue";
+import { ref, onMounted, onUnmounted, watch, nextTick, provide } from "vue";
 import SearchBar from "./components/SearchBar.vue";
 import BangEditor from "./components/BangEditor.vue";
 import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
@@ -22,6 +22,9 @@ const isDarkMode = ref(false);
 const isWalletConnected = ref(false);
 const fallbackSearchEngine = ref("https://google.com/search?q=%s");
 const bangEditorRef = ref(null);
+const cachedBangsData = ref(null);
+const isInitialized = ref(false);
+provide("isInitialized", isInitialized);
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 const lastFetchTime = ref(0);
@@ -30,14 +33,16 @@ function handleKeyboardShortcut(event) {
     if ((event.metaKey || event.ctrlKey) && event.key === "k") {
         event.preventDefault();
         currentView.value = "search";
-        if (searchBarRef.value) {
-            searchBarRef.value.focusInput();
-        }
+        nextTick(() => {
+            if (searchBarRef.value) {
+                searchBarRef.value.focusInput();
+            }
+        });
     } else if ((event.metaKey || event.ctrlKey) && event.key === "e") {
         event.preventDefault();
         if (isWalletConnected.value) {
             currentView.value = "bangEditor";
-            Vue.nextTick(() => {
+            nextTick(() => {
                 if (bangEditorRef.value) {
                     bangEditorRef.value.focusNewBangInput();
                 }
@@ -104,74 +109,81 @@ function toggleView() {
 function updateBangs(newBangs) {
     bangs.value = newBangs;
     saveBangsToCache(newBangs);
-    lastFetchTime.value = Date.now();
-    clearRedirectCache(); // Clear redirect cache when bangs are updated
 }
 
 function saveBangsToCache(bangsToCache) {
-    localStorage.setItem("cachedBangs", JSON.stringify(bangsToCache));
+    sessionStorage.setItem("currentBangs", JSON.stringify(bangsToCache));
+    localStorage.setItem("savedBangs", JSON.stringify(bangsToCache));
     localStorage.setItem("bangsCacheTime", Date.now().toString());
 }
 
 function saveFallbackToCache(fallback) {
-    localStorage.setItem("cachedFallbackSearchEngine", fallback);
+    sessionStorage.setItem("currentFallbackSearchEngine", fallback);
+    localStorage.setItem("savedFallbackSearchEngine", fallback);
     localStorage.setItem("fallbackCacheTime", Date.now().toString());
 }
 
 function loadFromCache() {
-    const cachedBangsString = localStorage.getItem("cachedBangs");
-    const bangsCacheTime = localStorage.getItem("bangsCacheTime");
-    const cachedFallback = localStorage.getItem("cachedFallbackSearchEngine");
-    const fallbackCacheTime = localStorage.getItem("fallbackCacheTime");
-
-    const currentTime = Date.now();
-
-    if (
-        cachedBangsString &&
-        bangsCacheTime &&
-        currentTime - parseInt(bangsCacheTime) < CACHE_DURATION
-    ) {
-        bangs.value = JSON.parse(cachedBangsString);
-    }
-
-    if (
-        cachedFallback &&
-        fallbackCacheTime &&
-        currentTime - parseInt(fallbackCacheTime) < CACHE_DURATION
-    ) {
-        fallbackSearchEngine.value = cachedFallback;
-    }
-
-    lastFetchTime.value = Math.max(
-        parseInt(bangsCacheTime) || 0,
-        parseInt(fallbackCacheTime) || 0,
+    const cachedBangs = JSON.parse(
+        sessionStorage.getItem("currentBangs") || "null",
     );
-}
+    const cachedFallback = sessionStorage.getItem(
+        "currentFallbackSearchEngine",
+    );
 
-function clearRedirectCache() {
-    localStorage.removeItem("cachedRedirects");
+    if (cachedBangs) {
+        bangs.value = cachedBangs;
+    } else {
+        const savedBangs = JSON.parse(
+            localStorage.getItem("savedBangs") || "null",
+        );
+        if (savedBangs) {
+            bangs.value = savedBangs;
+            sessionStorage.setItem("currentBangs", JSON.stringify(savedBangs));
+        }
+    }
+
+    if (cachedFallback) {
+        fallbackSearchEngine.value = cachedFallback;
+    } else {
+        const savedFallback = localStorage.getItem("savedFallbackSearchEngine");
+        if (savedFallback) {
+            fallbackSearchEngine.value = savedFallback;
+            sessionStorage.setItem(
+                "currentFallbackSearchEngine",
+                savedFallback,
+            );
+        }
+    }
 }
 
 async function onWalletConnected(address) {
     walletAddress.value = address;
     walletConnection.value = AWC;
     isWalletConnected.value = true;
-    await fetchAndLoadData(false);
+    await fetchAndLoadData(true);
     if (searchBarRef.value) {
         searchBarRef.value.focusInput();
     }
 }
 
 async function fetchAndLoadData(forceUpdate = false) {
-    const currentTime = Date.now();
-    if (!forceUpdate && currentTime - lastFetchTime.value < CACHE_DURATION) {
-        console.log("Using cached data");
-        loadFromCache();
+    if (!forceUpdate && cachedBangsData.value) {
+        console.log("Using cached data for this session");
+        bangs.value = cachedBangsData.value.bangs;
+        fallbackSearchEngine.value = cachedBangsData.value.fallbackSearchEngine;
         return;
     }
 
-    store.isLoading = true;
+    if (!forceUpdate) {
+        loadFromCache();
+        if (bangs.value.length > 0 && fallbackSearchEngine.value) {
+            return;
+        }
+    }
+
     try {
+        store.isLoading = true;
         const [bangsResult, fallbackResult] = await Promise.all([
             getAllBangs(walletConnection.value),
             getFallbackSearchEngine(walletConnection.value),
@@ -179,44 +191,23 @@ async function fetchAndLoadData(forceUpdate = false) {
 
         if (
             bangsResult &&
-            bangsResult.Messages &&
-            bangsResult.Messages.length > 0
+            bangsResult.success &&
+            Array.isArray(bangsResult.Bangs)
         ) {
-            const bangsData = JSON.parse(bangsResult.Messages[0].Data);
-            if (bangsData.success && Array.isArray(bangsData.Bangs)) {
-                bangs.value = bangsData.Bangs;
-                saveBangsToCache(bangsData.Bangs);
-            } else {
-                console.warn("Unexpected bangs data structure:", bangsData);
-                bangs.value = [];
-                saveBangsToCache([]);
-            }
-        } else {
-            console.warn("No bangs data received");
-            bangs.value = [];
-            saveBangsToCache([]);
+            bangs.value = bangsResult.Bangs;
+            saveBangsToCache(bangsResult.Bangs);
         }
 
-        if (
-            fallbackResult &&
-            fallbackResult.Messages &&
-            fallbackResult.Messages.length > 0
-        ) {
-            const fallbackData = JSON.parse(fallbackResult.Messages[0].Data);
-            if (fallbackData.success && fallbackData.url) {
-                fallbackSearchEngine.value = fallbackData.url;
-                saveFallbackToCache(fallbackData.url);
-            } else {
-                console.warn(
-                    "Unexpected fallback search engine data structure:",
-                    fallbackData,
-                );
-            }
-        } else {
-            console.warn("No fallback search engine data received");
+        if (fallbackResult && fallbackResult.success && fallbackResult.url) {
+            fallbackSearchEngine.value = fallbackResult.url;
+            saveFallbackToCache(fallbackResult.url);
         }
 
-        lastFetchTime.value = currentTime;
+        cachedBangsData.value = {
+            bangs: bangs.value,
+            fallbackSearchEngine: fallbackSearchEngine.value,
+        };
+
         console.log("Bangs and fallback search engine fetched successfully");
     } catch (error) {
         console.error("Error fetching bangs or fallback search engine:", error);
@@ -232,11 +223,8 @@ async function onWalletDisconnected() {
     bangs.value = [];
     fallbackSearchEngine.value = "https://google.com/search?q=%s";
     currentView.value = "search";
-    localStorage.removeItem("cachedBangs");
-    localStorage.removeItem("bangsCacheTime");
-    localStorage.removeItem("cachedFallbackSearchEngine");
-    localStorage.removeItem("fallbackCacheTime");
-    clearRedirectCache();
+    cachedBangsData.value = null;
+    sessionStorage.clear();
 }
 
 async function handleUrlParams() {
@@ -254,15 +242,23 @@ async function handleUrlParams() {
 }
 
 async function initializeApp() {
+    if (isInitialized.value) return;
+
     loadFromCache();
+
     const reconnected = await AWC.reconnectFromCache();
     if (reconnected) {
         walletAddress.value = AWC.address;
         walletConnection.value = AWC;
         isWalletConnected.value = true;
         await fetchAndLoadData(false);
+    } else {
+        // If not reconnected, still try to load data from cache
+        loadFromCache();
     }
+
     await handleUrlParams();
+    isInitialized.value = true;
 }
 
 function toggleDarkMode() {
@@ -287,6 +283,22 @@ onMounted(async () => {
 
 onUnmounted(() => {
     window.removeEventListener("keydown", handleKeyboardShortcut);
+});
+
+// Handle the popstate event for browser back/forward buttons
+window.addEventListener("popstate", () => {
+    if (!isInitialized.value) {
+        initializeApp();
+    }
+});
+
+// Expose necessary methods and data
+defineExpose({
+    onSearch,
+    bangs,
+    fallbackSearchEngine,
+    isWalletConnected,
+    walletAddress,
 });
 </script>
 <template>
@@ -361,6 +373,7 @@ onUnmounted(() => {
             <BangEditor
                 v-if="currentView === 'bangEditor' && isWalletConnected"
                 :bangs="bangs"
+                :fallbackSearchEngine="fallbackSearchEngine"
                 :walletConnection="walletConnection"
                 @update:bangs="updateBangs"
                 @force-update="fetchAndLoadData(true)"
@@ -564,9 +577,8 @@ button:hover {
 }
 
 @media screen and (max-width: 768px) {
-    #app {
-        padding: 10px;
-    }
+    /* #app {
+    } */
 
     .container {
         padding: 20px;

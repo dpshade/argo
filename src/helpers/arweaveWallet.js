@@ -77,14 +77,19 @@ export const ArweaveWalletConnection = {
   },
 
   _cacheWalletInfo() {
-    localStorage.setItem("cachedWalletMethod", this.authMethod);
-    localStorage.setItem("cachedWalletAddress", this.address);
+    // Session-specific data
+    sessionStorage.setItem("currentWalletMethod", this.authMethod);
+    sessionStorage.setItem("currentWalletAddress", this.address);
+
+    // Long-term data
+    localStorage.setItem("lastUsedWalletMethod", this.authMethod);
+    localStorage.setItem("lastUsedWalletAddress", this.address);
   },
 
   async reconnectFromCache() {
-    console.log("Trying reconnected from cache");
-    const cachedMethod = localStorage.getItem("cachedWalletMethod");
-    const cachedAddress = localStorage.getItem("cachedWalletAddress");
+    console.log("Trying to reconnect from cache");
+    const cachedMethod = sessionStorage.getItem("cachedWalletMethod");
+    const cachedAddress = sessionStorage.getItem("cachedWalletAddress");
 
     if (cachedMethod && cachedAddress) {
       try {
@@ -108,8 +113,10 @@ export const ArweaveWalletConnection = {
   },
 
   _clearCache() {
-    localStorage.removeItem("cachedWalletMethod");
-    localStorage.removeItem("cachedWalletAddress");
+    sessionStorage.removeItem("cachedWalletMethod");
+    sessionStorage.removeItem("cachedWalletAddress");
+    sessionStorage.removeItem("cachedBangs");
+    sessionStorage.removeItem("cachedFallbackSearchEngine");
   },
 
   async disconnect() {

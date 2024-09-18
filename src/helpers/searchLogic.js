@@ -3,17 +3,40 @@ import { resolveArNSDomain, checkArNSRecord } from "./arnsResolver";
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 function getCachedRedirect(query) {
-  const cachedRedirects = JSON.parse(
-    localStorage.getItem("cachedRedirects") || "{}",
+  // Try session storage first
+  let cachedRedirects = JSON.parse(
+    sessionStorage.getItem("cachedRedirects") || "{}",
   );
+
+  // If not found in session storage, check local storage
+  if (Object.keys(cachedRedirects).length === 0) {
+    cachedRedirects = JSON.parse(
+      localStorage.getItem("cachedRedirects") || "{}",
+    );
+  }
+
   const currentTime = Date.now();
 
-  for (const [key, value] of Object.entries(cachedRedirects)) {
+  // Check for an exact match first
+  if (
+    cachedRedirects[query] &&
+    currentTime - cachedRedirects[query].timestamp < CACHE_DURATION
+  ) {
+    return cachedRedirects[query].url.replace("%s", encodeURIComponent(query));
+  }
+
+  // If no exact match, check for bang matches
+  const words = query.split(/\s+/);
+  for (const word of words) {
     if (
-      query.toLowerCase().includes(key.toLowerCase()) &&
-      currentTime - value.timestamp < CACHE_DURATION
+      cachedRedirects[word] &&
+      currentTime - cachedRedirects[word].timestamp < CACHE_DURATION
     ) {
-      return value.url.replace("%s", encodeURIComponent(query));
+      const searchTerm = query.replace(word, "").trim();
+      return cachedRedirects[word].url.replace(
+        "%s",
+        encodeURIComponent(searchTerm),
+      );
     }
   }
 
@@ -21,11 +44,23 @@ function getCachedRedirect(query) {
 }
 
 function cacheRedirect(key, url) {
-  const cachedRedirects = JSON.parse(
+  const sessionCachedRedirects = JSON.parse(
+    sessionStorage.getItem("cachedRedirects") || "{}",
+  );
+  const localCachedRedirects = JSON.parse(
     localStorage.getItem("cachedRedirects") || "{}",
   );
-  cachedRedirects[key] = { url, timestamp: Date.now() };
-  localStorage.setItem("cachedRedirects", JSON.stringify(cachedRedirects));
+
+  const newCache = { url, timestamp: Date.now() };
+
+  sessionCachedRedirects[key] = newCache;
+  localCachedRedirects[key] = newCache;
+
+  sessionStorage.setItem(
+    "cachedRedirects",
+    JSON.stringify(sessionCachedRedirects),
+  );
+  localStorage.setItem("cachedRedirects", JSON.stringify(localCachedRedirects));
 }
 
 export async function handleSearch(
@@ -37,7 +72,7 @@ export async function handleSearch(
   const trimmedQuery = query.trim();
   console.log("Searching:", trimmedQuery);
 
-  // Check cache first
+  // Check cache first for exact match
   const cachedRedirect = getCachedRedirect(trimmedQuery);
   if (cachedRedirect) {
     return `Redirecting to: ${cachedRedirect}`;
@@ -82,13 +117,19 @@ export async function handleSearch(
   }
 
   // If no bang is found, check for ArNS domain
-  if (!trimmedQuery.includes(" ")) {
+  if (!trimmedQuery.includes(" ") && /^[a-zA-Z0-9_-]+$/.test(trimmedQuery)) {
+    console.log("Checking for ArNS record:", trimmedQuery);
     const isArNS = await checkArNSRecord(trimmedQuery);
+    console.log("Is ArNS record:", isArNS);
     if (isArNS) {
+      console.log("Resolving ArNS domain:", trimmedQuery);
       const resolvedDomain = await resolveArNSDomain(trimmedQuery);
+      console.log("Resolved domain:", resolvedDomain);
       if (resolvedDomain) {
         cacheRedirect(trimmedQuery, resolvedDomain);
         return `Redirecting to: ${resolvedDomain}`;
+      } else {
+        console.log("Failed to resolve ArNS domain");
       }
     }
   }
@@ -102,7 +143,7 @@ export async function handleSearch(
   // If no bang or ArNS domain is found, use the fallback search engine
   const searchUrl = fallbackSearchEngine.replace(
     "%s",
-    encodeURIComponent(query),
+    encodeURIComponent(trimmedQuery),
   );
   return `Redirecting to: ${searchUrl}`;
 }

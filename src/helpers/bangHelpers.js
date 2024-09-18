@@ -40,14 +40,28 @@ export async function getBang(walletConnection, name) {
 
 // Read: Get all bangs
 export async function getAllBangs(walletConnection) {
+  const cachedBangs = sessionStorage.getItem("cachedBangs");
+  if (cachedBangs) {
+    return JSON.parse(cachedBangs);
+  }
+
   if (!walletConnection) {
     throw new Error("Wallet not connected");
   }
-  return await walletConnection.dryRunArweave(
+
+  const result = await walletConnection.dryRunArweave(
     [{ name: "Action", value: "ListBangs" }],
     "",
     BANG_PROCESS_ID,
   );
+
+  if (result && result.Messages && result.Messages.length > 0) {
+    const bangsData = JSON.parse(result.Messages[0].Data);
+    sessionStorage.setItem("cachedBangs", JSON.stringify(bangsData));
+    return bangsData;
+  }
+
+  return { success: false, Bangs: [] };
 }
 
 // Update: Modify an existing bang
@@ -128,12 +142,29 @@ export async function updateFallbackSearchEngine(walletConnection, url) {
 }
 
 export async function getFallbackSearchEngine(walletConnection) {
+  const cachedFallback = sessionStorage.getItem("cachedFallbackSearchEngine");
+  if (cachedFallback) {
+    return JSON.parse(cachedFallback);
+  }
+
   if (!walletConnection) {
     throw new Error("Wallet not connected");
   }
-  return await walletConnection.dryRunArweave(
+
+  const result = await walletConnection.dryRunArweave(
     [{ name: "Action", value: "GetFallbackSearchEngine" }],
     "",
     BANG_PROCESS_ID,
   );
+
+  if (result && result.Messages && result.Messages.length > 0) {
+    const fallbackData = JSON.parse(result.Messages[0].Data);
+    sessionStorage.setItem(
+      "cachedFallbackSearchEngine",
+      JSON.stringify(fallbackData),
+    );
+    return fallbackData;
+  }
+
+  return { success: false, url: "https://google.com/search?q=%s" };
 }
