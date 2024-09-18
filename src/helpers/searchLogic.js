@@ -1,5 +1,33 @@
 import { resolveArNSDomain, checkArNSRecord } from "./arnsResolver";
 
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+function getCachedRedirect(query) {
+  const cachedRedirects = JSON.parse(
+    localStorage.getItem("cachedRedirects") || "{}",
+  );
+  const currentTime = Date.now();
+
+  for (const [key, value] of Object.entries(cachedRedirects)) {
+    if (
+      query.toLowerCase().includes(key.toLowerCase()) &&
+      currentTime - value.timestamp < CACHE_DURATION
+    ) {
+      return value.url.replace("%s", encodeURIComponent(query));
+    }
+  }
+
+  return null;
+}
+
+function cacheRedirect(key, url) {
+  const cachedRedirects = JSON.parse(
+    localStorage.getItem("cachedRedirects") || "{}",
+  );
+  cachedRedirects[key] = { url, timestamp: Date.now() };
+  localStorage.setItem("cachedRedirects", JSON.stringify(cachedRedirects));
+}
+
 export async function handleSearch(
   query,
   bangs = [],
@@ -9,9 +37,15 @@ export async function handleSearch(
   const trimmedQuery = query.trim();
   console.log("Searching:", trimmedQuery);
 
+  // Check cache first
+  const cachedRedirect = getCachedRedirect(trimmedQuery);
+  if (cachedRedirect) {
+    return `Redirecting to: ${cachedRedirect}`;
+  }
+
   const words = trimmedQuery.split(/\s+/);
 
-  // Check bangs first
+  // Check bangs
   if (bangs && bangs.length > 0) {
     // Check if the first word matches any of the defined bangs
     const bang = bangs.find(
@@ -24,6 +58,7 @@ export async function handleSearch(
         "%s",
         encodeURIComponent(searchTerm),
       );
+      cacheRedirect(bang.name, bang.url);
       return `Redirecting to: ${redirectUrl}`;
     } else {
       // Check if any word in the query matches a bang
@@ -39,6 +74,7 @@ export async function handleSearch(
             "%s",
             encodeURIComponent(searchTerm),
           );
+          cacheRedirect(potentialBang.name, potentialBang.url);
           return `Redirecting to: ${redirectUrl}`;
         }
       }
@@ -51,6 +87,7 @@ export async function handleSearch(
     if (isArNS) {
       const resolvedDomain = await resolveArNSDomain(trimmedQuery);
       if (resolvedDomain) {
+        cacheRedirect(trimmedQuery, resolvedDomain);
         return `Redirecting to: ${resolvedDomain}`;
       }
     }

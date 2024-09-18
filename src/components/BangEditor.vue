@@ -24,7 +24,8 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(["update:bangs"]);
+const emit = defineEmits(["update:bangs", "force-update"]);
+
 const localBangs = ref([]);
 const fallbackSearchEngine = ref("");
 const newBangName = ref("");
@@ -137,6 +138,7 @@ async function saveBang(index) {
         delete bang.editName;
         delete bang.editUrl;
         await fetchAllData();
+        emit("force-update");
     } catch (error) {
         console.error("Error saving bang:", error);
         alert(`Failed to save bang: ${error.message}`);
@@ -148,6 +150,7 @@ async function removeBang(index) {
     try {
         await deleteBang(ArweaveWalletConnection, bang.name);
         await fetchAllData();
+        emit("force-update");
     } catch (error) {
         console.error("Error deleting bang:", error);
     }
@@ -192,6 +195,7 @@ async function saveFallbackSearchEngine() {
             showFallbackSuccess.value = false;
         }, 3000);
         await fetchAllData();
+        emit("force-update");
     } catch (error) {
         console.error("Error updating fallback search engine:", error);
         alert(`Failed to update fallback search engine: ${error.message}`);

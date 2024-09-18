@@ -23,44 +23,76 @@ const isWalletConnected = ref(false);
 const fallbackSearchEngine = ref("https://google.com/search?q=%s");
 const bangEditorRef = ref(null);
 
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+const lastFetchTime = ref(0);
+
 function handleKeyboardShortcut(event) {
-    // Check if cmd+k (Mac) or ctrl+k (Windows/Linux) is pressed
     if ((event.metaKey || event.ctrlKey) && event.key === "k") {
-        event.preventDefault(); // Prevent default browser behavior
+        event.preventDefault();
         currentView.value = "search";
         if (searchBarRef.value) {
             searchBarRef.value.focusInput();
         }
-    }
-    // Check if cmd+e (Mac) or ctrl+e (Windows/Linux) is pressed
-    else if ((event.metaKey || event.ctrlKey) && event.key === "e") {
-        event.preventDefault(); // Prevent default browser behavior
+    } else if ((event.metaKey || event.ctrlKey) && event.key === "e") {
+        event.preventDefault();
         if (isWalletConnected.value) {
             currentView.value = "bangEditor";
-            // Use nextTick to ensure the BangEditor component is mounted
             Vue.nextTick(() => {
                 if (bangEditorRef.value) {
                     bangEditorRef.value.focusNewBangInput();
                 }
             });
         } else {
-            // Optionally, you can show a message or prompt to connect wallet
             console.log("Please connect your wallet to access the bang editor");
         }
     }
 }
 
-async function onSearch(query) {
-    const result = await handleSearch(
-        query,
-        bangs.value,
-        walletConnection.value,
-        fallbackSearchEngine.value,
+function checkCachedRedirects(query) {
+    const cachedRedirects = JSON.parse(
+        localStorage.getItem("cachedRedirects") || "{}",
     );
-    searchResult.value = result;
-    if (result.startsWith("Redirecting to:")) {
-        const url = result.split(": ")[1];
-        window.open(url, "_blank");
+    const currentTime = Date.now();
+
+    for (const [key, value] of Object.entries(cachedRedirects)) {
+        if (
+            query.toLowerCase().includes(key.toLowerCase()) &&
+            currentTime - value.timestamp < CACHE_DURATION
+        ) {
+            return value.url.replace("%s", encodeURIComponent(query));
+        }
+    }
+
+    return null;
+}
+
+function cacheRedirect(key, url) {
+    const cachedRedirects = JSON.parse(
+        localStorage.getItem("cachedRedirects") || "{}",
+    );
+    cachedRedirects[key] = { url, timestamp: Date.now() };
+    localStorage.setItem("cachedRedirects", JSON.stringify(cachedRedirects));
+}
+
+async function onSearch(query) {
+    store.isLoading = true;
+    try {
+        const result = await handleSearch(
+            query,
+            bangs.value,
+            walletConnection.value,
+            fallbackSearchEngine.value,
+        );
+        searchResult.value = result;
+        if (result.startsWith("Redirecting to:")) {
+            const url = result.split(": ")[1];
+            window.location.href = url;
+        }
+    } catch (error) {
+        console.error("Error during search:", error);
+        searchResult.value = "An error occurred during the search.";
+    } finally {
+        store.isLoading = false;
     }
 }
 
@@ -71,19 +103,73 @@ function toggleView() {
 
 function updateBangs(newBangs) {
     bangs.value = newBangs;
+    saveBangsToCache(newBangs);
+    lastFetchTime.value = Date.now();
+    clearRedirectCache(); // Clear redirect cache when bangs are updated
+}
+
+function saveBangsToCache(bangsToCache) {
+    localStorage.setItem("cachedBangs", JSON.stringify(bangsToCache));
+    localStorage.setItem("bangsCacheTime", Date.now().toString());
+}
+
+function saveFallbackToCache(fallback) {
+    localStorage.setItem("cachedFallbackSearchEngine", fallback);
+    localStorage.setItem("fallbackCacheTime", Date.now().toString());
+}
+
+function loadFromCache() {
+    const cachedBangsString = localStorage.getItem("cachedBangs");
+    const bangsCacheTime = localStorage.getItem("bangsCacheTime");
+    const cachedFallback = localStorage.getItem("cachedFallbackSearchEngine");
+    const fallbackCacheTime = localStorage.getItem("fallbackCacheTime");
+
+    const currentTime = Date.now();
+
+    if (
+        cachedBangsString &&
+        bangsCacheTime &&
+        currentTime - parseInt(bangsCacheTime) < CACHE_DURATION
+    ) {
+        bangs.value = JSON.parse(cachedBangsString);
+    }
+
+    if (
+        cachedFallback &&
+        fallbackCacheTime &&
+        currentTime - parseInt(fallbackCacheTime) < CACHE_DURATION
+    ) {
+        fallbackSearchEngine.value = cachedFallback;
+    }
+
+    lastFetchTime.value = Math.max(
+        parseInt(bangsCacheTime) || 0,
+        parseInt(fallbackCacheTime) || 0,
+    );
+}
+
+function clearRedirectCache() {
+    localStorage.removeItem("cachedRedirects");
 }
 
 async function onWalletConnected(address) {
     walletAddress.value = address;
     walletConnection.value = AWC;
     isWalletConnected.value = true;
-    await fetchAndLoadData();
+    await fetchAndLoadData(false);
     if (searchBarRef.value) {
         searchBarRef.value.focusInput();
     }
 }
 
-async function fetchAndLoadData() {
+async function fetchAndLoadData(forceUpdate = false) {
+    const currentTime = Date.now();
+    if (!forceUpdate && currentTime - lastFetchTime.value < CACHE_DURATION) {
+        console.log("Using cached data");
+        loadFromCache();
+        return;
+    }
+
     store.isLoading = true;
     try {
         const [bangsResult, fallbackResult] = await Promise.all([
@@ -99,13 +185,16 @@ async function fetchAndLoadData() {
             const bangsData = JSON.parse(bangsResult.Messages[0].Data);
             if (bangsData.success && Array.isArray(bangsData.Bangs)) {
                 bangs.value = bangsData.Bangs;
+                saveBangsToCache(bangsData.Bangs);
             } else {
                 console.warn("Unexpected bangs data structure:", bangsData);
                 bangs.value = [];
+                saveBangsToCache([]);
             }
         } else {
             console.warn("No bangs data received");
             bangs.value = [];
+            saveBangsToCache([]);
         }
 
         if (
@@ -116,6 +205,7 @@ async function fetchAndLoadData() {
             const fallbackData = JSON.parse(fallbackResult.Messages[0].Data);
             if (fallbackData.success && fallbackData.url) {
                 fallbackSearchEngine.value = fallbackData.url;
+                saveFallbackToCache(fallbackData.url);
             } else {
                 console.warn(
                     "Unexpected fallback search engine data structure:",
@@ -126,6 +216,7 @@ async function fetchAndLoadData() {
             console.warn("No fallback search engine data received");
         }
 
+        lastFetchTime.value = currentTime;
         console.log("Bangs and fallback search engine fetched successfully");
     } catch (error) {
         console.error("Error fetching bangs or fallback search engine:", error);
@@ -141,6 +232,11 @@ async function onWalletDisconnected() {
     bangs.value = [];
     fallbackSearchEngine.value = "https://google.com/search?q=%s";
     currentView.value = "search";
+    localStorage.removeItem("cachedBangs");
+    localStorage.removeItem("bangsCacheTime");
+    localStorage.removeItem("cachedFallbackSearchEngine");
+    localStorage.removeItem("fallbackCacheTime");
+    clearRedirectCache();
 }
 
 async function handleUrlParams() {
@@ -158,20 +254,24 @@ async function handleUrlParams() {
 }
 
 async function initializeApp() {
+    loadFromCache();
     const reconnected = await AWC.reconnectFromCache();
     if (reconnected) {
-        await onWalletConnected(AWC.address);
+        walletAddress.value = AWC.address;
+        walletConnection.value = AWC;
+        isWalletConnected.value = true;
+        await fetchAndLoadData(false);
     }
     await handleUrlParams();
 }
-
-watch(() => window.location.search, handleUrlParams);
 
 function toggleDarkMode() {
     isDarkMode.value = !isDarkMode.value;
     document.body.classList.toggle("dark-mode", isDarkMode.value);
     localStorage.setItem("darkMode", isDarkMode.value);
 }
+
+watch(() => window.location.search, handleUrlParams);
 
 onMounted(async () => {
     await initializeApp();
@@ -182,16 +282,13 @@ onMounted(async () => {
         document.body.classList.toggle("dark-mode", isDarkMode.value);
     }
 
-    // Add the global event listener
     window.addEventListener("keydown", handleKeyboardShortcut);
 });
 
 onUnmounted(() => {
-    // Remove the global event listener when the component is unmounted
     window.removeEventListener("keydown", handleKeyboardShortcut);
 });
 </script>
-
 <template>
     <HeadlessRedirect v-if="isHeadless" />
     <template v-else>
@@ -266,6 +363,7 @@ onUnmounted(() => {
                 :bangs="bangs"
                 :walletConnection="walletConnection"
                 @update:bangs="updateBangs"
+                @force-update="fetchAndLoadData(true)"
                 ref="bangEditorRef"
             />
             <div v-if="searchResult && showResult" class="result fade-out">
