@@ -40,7 +40,7 @@ defineExpose({ focusInput });
 <style scoped>
 .search-bar {
     display: flex;
-    width: 40%;
+    width: 45%;
     margin-bottom: 1rem;
 }
 

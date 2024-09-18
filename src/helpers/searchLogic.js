@@ -1,18 +1,17 @@
+import { resolveArNSDomain, checkArNSRecord } from "./arnsResolver";
+
 export async function handleSearch(
   query,
   bangs = [],
   walletConnection,
   fallbackSearchEngine = "https://google.com/search?q=%s",
 ) {
-  // Trim the query and check if it's a 43-character string (typical Arweave transaction ID length)
   const trimmedQuery = query.trim();
-  if (trimmedQuery.length === 43 && /^[a-zA-Z0-9_-]+$/.test(trimmedQuery)) {
-    const viewBlockUrl = `https://viewblock.io/arweave/tx/${trimmedQuery}`;
-    return `Redirecting to: ${viewBlockUrl}`;
-  }
+  console.log("Searching:", trimmedQuery);
 
   const words = trimmedQuery.split(/\s+/);
 
+  // Check bangs first
   if (bangs && bangs.length > 0) {
     // Check if the first word matches any of the defined bangs
     const bang = bangs.find(
@@ -46,7 +45,24 @@ export async function handleSearch(
     }
   }
 
-  // If no bang is found or no bangs provided, use the fallback search engine
+  // If no bang is found, check for ArNS domain
+  if (!trimmedQuery.includes(" ")) {
+    const isArNS = await checkArNSRecord(trimmedQuery);
+    if (isArNS) {
+      const resolvedDomain = await resolveArNSDomain(trimmedQuery);
+      if (resolvedDomain) {
+        return `Redirecting to: ${resolvedDomain}`;
+      }
+    }
+  }
+
+  // Check if it's a 43-character string (typical Arweave transaction ID length)
+  if (trimmedQuery.length === 43 && /^[a-zA-Z0-9_-]+$/.test(trimmedQuery)) {
+    const viewBlockUrl = `https://viewblock.io/arweave/tx/${trimmedQuery}`;
+    return `Redirecting to: ${viewBlockUrl}`;
+  }
+
+  // If no bang or ArNS domain is found, use the fallback search engine
   const searchUrl = fallbackSearchEngine.replace(
     "%s",
     encodeURIComponent(query),
