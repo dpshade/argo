@@ -3,8 +3,9 @@ import { ref, onMounted, watch } from "vue";
 import SearchBar from "./components/SearchBar.vue";
 import BangEditor from "./components/BangEditor.vue";
 import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
-import { ArweaveWalletConnection as AWC } from "./arweaveWallet";
-import { getFallbackSearchEngine } from "./components/bangHelpers.js";
+import { ArweaveWalletConnection as AWC } from "./helpers/arweaveWallet";
+import { handleSearch } from "./helpers/searchLogic";
+import { getFallbackSearchEngine } from "./helpers/bangHelpers.js";
 
 const searchResult = ref("");
 const currentView = ref("search");
@@ -14,53 +15,16 @@ const walletConnection = ref(null);
 const isLoading = ref(false);
 const searchBarRef = ref(null);
 
-function handleSearch(query) {
-    // Split the query into words
-    const words = query.trim().split(/\s+/);
-
-    // Check if the first word matches any of the defined bangs
-    const bang = bangs.value.Bangs.find(
-        (b) => words[0].toLowerCase() === b.name.toLowerCase(),
+async function onSearch(query) {
+    const result = await handleSearch(
+        query,
+        bangs.value,
+        walletConnection.value,
     );
-
-    if (bang) {
-        // Remove the bang from the query
-        const searchTerm = words.slice(1).join(" ");
-        const redirectUrl = bang.url.replace(
-            "%s",
-            encodeURIComponent(searchTerm),
-        );
-        searchResult.value = `Redirecting to: ${redirectUrl}`;
-        window.open(redirectUrl, "_blank");
-    } else {
-        // Check if any word in the query matches a bang
-        for (let i = 0; i < words.length; i++) {
-            const potentialBang = bangs.value.Bangs.find(
-                (b) => words[i].toLowerCase() === b.name.toLowerCase(),
-            );
-            if (potentialBang) {
-                // Remove the bang from the query
-                const searchTerm = [
-                    ...words.slice(0, i),
-                    ...words.slice(i + 1),
-                ].join(" ");
-                const redirectUrl = potentialBang.url.replace(
-                    "%s",
-                    encodeURIComponent(searchTerm),
-                );
-                searchResult.value = `Redirecting to: ${redirectUrl}`;
-                window.open(redirectUrl, "_blank");
-                return;
-            }
-        }
-
-        // If no bang is found, use the fallback search engine
-        const searchUrl = fallbackSearchEngine.value.replace(
-            "%s",
-            encodeURIComponent(query),
-        );
-        searchResult.value = `Redirecting to: ${searchUrl}`;
-        window.open(searchUrl, "_blank");
+    searchResult.value = result;
+    if (result.startsWith("Redirecting to:")) {
+        const url = result.split(": ")[1];
+        window.open(url, "_blank");
     }
 }
 
@@ -132,13 +96,13 @@ function handleUrlParams() {
     const urlParams = new URLSearchParams(window.location.search);
     const query = urlParams.get("q");
     if (query) {
-        handleSearch(query);
+        onSearch(query);
     }
 }
 
 watch(() => window.location.search, handleUrlParams);
 
-const fallbackSearchEngine = ref("");
+const fallbackSearchEngine = ref("https://google.com/search?q=%s");
 
 async function fetchFallbackSearchEngine() {
     if (!walletConnection.value) {
@@ -187,7 +151,7 @@ onMounted(() => {
         <h1>tinyNav</h1>
         <SearchBar
             v-if="currentView === 'search'"
-            @search="handleSearch"
+            @search="onSearch"
             ref="searchBarRef"
         />
         <BangEditor

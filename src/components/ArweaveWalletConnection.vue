@@ -11,7 +11,7 @@ import { arGql } from "ar-gql";
 import { ArConnect } from "arweavekit/auth";
 import * as othent from "@othent/kms";
 import { QuickWallet } from "quick-wallet";
-import { ArweaveWalletConnection as AWC } from "../arweaveWallet";
+import { ArweaveWalletConnection as AWC } from "../helpers/arweaveWallet";
 import { store } from "../store";
 
 const PROCESS_ID = "ZtS3h94Orj7jT94m3uP-n7iC5_56Z9LL24Vx21LW03k";

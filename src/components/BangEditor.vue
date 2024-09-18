@@ -8,8 +8,8 @@ import {
     BANG_PROCESS_ID,
     getFallbackSearchEngine,
     updateFallbackSearchEngine,
-} from "./bangHelpers.js";
-import { ArweaveWalletConnection } from "../arweaveWallet";
+} from "../helpers/bangHelpers.js";
+import { ArweaveWalletConnection } from "../helpers/arweaveWallet";
 import { store } from "../store";
 
 const props = defineProps({
