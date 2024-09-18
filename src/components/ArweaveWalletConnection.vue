@@ -1,30 +1,16 @@
 <script>
-import { ref, computed } from "vue";
-import {
-    createDataItemSigner,
-    dryrun,
-    message,
-    result,
-    spawn,
-} from "@permaweb/aoconnect";
-import { arGql } from "ar-gql";
-import { ArConnect } from "arweavekit/auth";
-import * as othent from "@othent/kms";
-import { QuickWallet } from "quick-wallet";
+import { ref, computed, onMounted } from "vue";
 import { ArweaveWalletConnection as AWC } from "../helpers/arweaveWallet";
 import { store } from "../store";
-
-const PROCESS_ID = "ZtS3h94Orj7jT94m3uP-n7iC5_56Z9LL24Vx21LW03k";
 
 export default {
     name: "ArweaveWalletConnection",
     emits: ["walletConnected", "walletDisconnected"],
     setup(props, { emit }) {
         const walletAddress = ref(null);
-        const signer = ref(null);
-        const authMethod = ref(null);
-        const isConnecting = ref(false);
         const showModal = ref(false);
+        const isConnecting = ref(false);
+
         const isMobile = computed(() => {
             return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
                 navigator.userAgent,
@@ -116,13 +102,7 @@ export default {
             try {
                 const address = await AWC.connect(method);
                 walletAddress.value = address;
-
                 store.walletConnection = AWC;
-
-                console.log("STORE:");
-                console.log(store);
-
-                // Emit event for parent component
                 emit("walletConnected", address);
             } catch (error) {
                 console.error("Wallet connection failed:", error);
@@ -141,145 +121,6 @@ export default {
             } catch (error) {
                 console.error("Wallet disconnection failed:", error);
                 alert("Failed to disconnect wallet. Please try again.");
-            }
-        };
-
-        const tryArConnect = async () => {
-            try {
-                await ArConnect.connect({
-                    permissions: ["ACCESS_ADDRESS", "SIGN_TRANSACTION"],
-                });
-                walletAddress.value =
-                    await window.arweaveWallet.getActiveAddress();
-                authMethod.value = "ArConnect";
-            } catch (error) {
-                console.warn("ArConnect connection failed:", error);
-                throw error;
-            }
-        };
-
-        const tryArweaveApp = async () => {
-            try {
-                console.log("Connecting to Arweave.app...");
-                const arweaveAppWallet = new ArweaveWebWallet();
-                arweaveAppWallet.setUrl("https://arweave.app");
-                await arweaveAppWallet.connect();
-
-                const arweaveWalletNamespace =
-                    arweaveAppWallet.namespaces.arweaveWallet;
-                walletAddress.value = arweaveWalletNamespace.getActiveAddress();
-                authMethod.value = "ArweaveApp";
-            } catch (error) {
-                console.error("Arweave.app connection failed:", error);
-                throw error;
-            }
-        };
-
-        const tryQuickWallet = async () => {
-            try {
-                await QuickWallet.connect();
-                walletAddress.value = await QuickWallet.getActiveAddress();
-                authMethod.value = "QuickWallet";
-            } catch (error) {
-                console.warn("Quick wallet connection failed:", error);
-                throw error;
-            }
-        };
-
-        const sendMessageToArweave = async (
-            tags,
-            data = "",
-            processId = PROCESS_ID,
-        ) => {
-            if (!signer.value && !store.walletConnection) {
-                throw new Error(
-                    "Signer is not initialized. Please connect wallet first.",
-                );
-            }
-
-            const currentSigner =
-                signer.value || store.walletConnection.sendMessageToArweave;
-
-            try {
-                // ... (rest of the function using currentSigner)
-            } catch (error) {
-                // ... (error handling)
-            }
-        };
-
-        const dryRunArweave = async (
-            tags,
-            data = "",
-            processId = PROCESS_ID,
-        ) => {
-            if (!signer.value && !store.walletConnection) {
-                throw new Error(
-                    "Signer is not initialized. Please connect wallet first.",
-                );
-            }
-
-            const currentSigner =
-                signer.value || store.walletConnection.dryRunArweave;
-
-            try {
-                // If dryrun is not available, we'll use message instead
-                if (typeof dryrun !== "function") {
-                    console.warn("dryrun not available, using message instead");
-                    const messageId = await message({
-                        process: processId,
-                        tags,
-                        signer: currentSigner,
-                        data,
-                    });
-                    return await result({
-                        process: processId,
-                        message: messageId,
-                    });
-                }
-
-                const { Messages, Error } = await dryrun({
-                    process: processId,
-                    tags: tags,
-                    data: data,
-                    signer: currentSigner,
-                });
-
-                if (Error) {
-                    console.error("Error in dryRunArweave:", Error);
-                    throw new Error(Error);
-                }
-
-                console.log("Dry run completed successfully");
-                return { Messages, Error };
-            } catch (error) {
-                console.error("Error in dryRunArweave:", error);
-                throw error;
-            }
-        };
-
-        const spawnProcess = async (module, scheduler, tags, data) => {
-            if (!signer.value && !store.walletConnection) {
-                throw new Error(
-                    "Signer is not initialized. Please connect wallet first.",
-                );
-            }
-
-            const currentSigner =
-                signer.value || store.walletConnection.spawnProcess;
-
-            try {
-                const processId = await spawn({
-                    module,
-                    scheduler,
-                    signer: currentSigner,
-                    tags,
-                    data,
-                });
-
-                return processId;
-            } catch (error) {
-                console.error("Error spawning process:", error);
-                throw error;
             }
         };
 
@@ -303,6 +144,19 @@ export default {
             return Promise.all(imagePromises);
         };
 
+        const checkCachedConnection = async () => {
+            const reconnected = await AWC.reconnectFromCache();
+            if (reconnected) {
+                walletAddress.value = AWC.address;
+                store.walletConnection = AWC;
+                emit("walletConnected", AWC.address);
+            }
+        };
+
+        onMounted(async () => {
+            await checkCachedConnection();
+        });
+
         return {
             walletAddress,
             showModal,
@@ -314,10 +168,6 @@ export default {
             closeModalOnOutsideClick,
             connectWallet,
             disconnectWallet,
-            sendMessageToArweave,
-            dryRunArweave,
-            spawnProcess,
-            store,
         };
     },
 };

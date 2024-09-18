@@ -14,8 +14,8 @@ import { store } from "../store";
 
 const props = defineProps({
     bangs: {
-        type: Object,
-        default: () => ({ success: true, Bangs: [] }),
+        type: Array,
+        default: () => [],
     },
     walletConnection: {
         type: Object,
@@ -24,8 +24,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["update:bangs"]);
-const fallbackSearchEngine = ref("");
 const localBangs = ref([]);
+const fallbackSearchEngine = ref("");
 const newBangName = ref("");
 const newBangUrl = ref("");
 const isLoading = ref(true);
@@ -35,11 +35,7 @@ const showFallbackSuccess = ref(false);
 watch(
     () => props.bangs,
     (newBangs) => {
-        if (newBangs && newBangs.Bangs && Array.isArray(newBangs.Bangs)) {
-            localBangs.value = [...newBangs.Bangs];
-        } else {
-            localBangs.value = [];
-        }
+        localBangs.value = JSON.parse(JSON.stringify(newBangs));
     },
     { immediate: true },
 );
@@ -153,10 +149,7 @@ async function removeBang(index) {
 }
 
 function updateBangs() {
-    emit("update:bangs", {
-        success: true,
-        Bangs: JSON.parse(JSON.stringify(localBangs.value)),
-    });
+    emit("update:bangs", JSON.parse(JSON.stringify(localBangs.value)));
 }
 
 async function fetchFallbackSearchEngine() {

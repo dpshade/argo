@@ -17,45 +17,18 @@ export const ArweaveWalletConnection = {
   connection: null,
   signer: null,
   authMethod: null,
-  BANG_PROCESS_ID: "KdLdVvKmcmb3vqh9nVXH3IUVb8w3r5M_n8cdv67ZvmI",
+  BANG_PROCESS_ID,
 
   async connect(method) {
     try {
-      switch (method) {
-        case "ArConnect":
-          await this.connectArConnect();
-          break;
-        case "QuickWallet":
-          await this.connectQuickWallet();
-          break;
-        case "ArweaveApp":
-          await this.connectArweaveApp();
-          break;
-        default:
-          throw new Error("Unknown wallet method");
-      }
+      await this._connectWithMethod(method);
 
       if (this.address) {
         console.log(`Wallet connected successfully: ${this.address}`);
         console.log("Auth method:", this.authMethod);
 
-        switch (this.authMethod) {
-          case "ArConnect":
-            this.signer = createDataItemSigner(window.arweaveWallet);
-            break;
-          case "ArweaveApp":
-            this.signer = createDataItemSigner(this.connection);
-            break;
-          case "QuickWallet":
-            this.signer = createDataItemSigner(QuickWallet);
-            break;
-          default:
-            throw new Error("Unknown auth method");
-        }
-
-        if (!this.signer) {
-          throw new Error("Failed to create signer");
-        }
+        this._createSigner();
+        this._cacheWalletInfo();
       } else {
         console.error("Failed to obtain wallet address");
       }
@@ -65,6 +38,78 @@ export const ArweaveWalletConnection = {
       console.error("Wallet connection failed:", error);
       throw error;
     }
+  },
+
+  async _connectWithMethod(method) {
+    switch (method) {
+      case "ArConnect":
+        await this.connectArConnect();
+        break;
+      case "QuickWallet":
+        await this.connectQuickWallet();
+        break;
+      case "ArweaveApp":
+        await this.connectArweaveApp();
+        break;
+      default:
+        throw new Error("Unknown wallet method");
+    }
+  },
+
+  _createSigner() {
+    switch (this.authMethod) {
+      case "ArConnect":
+        this.signer = createDataItemSigner(window.arweaveWallet);
+        break;
+      case "ArweaveApp":
+        this.signer = createDataItemSigner(this.connection);
+        break;
+      case "QuickWallet":
+        this.signer = createDataItemSigner(QuickWallet);
+        break;
+      default:
+        throw new Error("Unknown auth method");
+    }
+
+    if (!this.signer) {
+      throw new Error("Failed to create signer");
+    }
+  },
+
+  _cacheWalletInfo() {
+    localStorage.setItem("cachedWalletMethod", this.authMethod);
+    localStorage.setItem("cachedWalletAddress", this.address);
+  },
+
+  async reconnectFromCache() {
+    console.log("Trying reconnected from cache");
+    const cachedMethod = localStorage.getItem("cachedWalletMethod");
+    const cachedAddress = localStorage.getItem("cachedWalletAddress");
+
+    if (cachedMethod && cachedAddress) {
+      try {
+        await this._connectWithMethod(cachedMethod);
+        if (this.address === cachedAddress) {
+          this._createSigner();
+          console.log("Successfully reconnected from cache");
+          return true;
+        } else {
+          console.log(
+            "Cached address doesn't match current address. Clearing cache.",
+          );
+          this._clearCache();
+        }
+      } catch (error) {
+        console.error("Failed to reconnect from cache:", error);
+        this._clearCache();
+      }
+    }
+    return false;
+  },
+
+  _clearCache() {
+    localStorage.removeItem("cachedWalletMethod");
+    localStorage.removeItem("cachedWalletAddress");
   },
 
   async disconnect() {
@@ -90,17 +135,21 @@ export const ArweaveWalletConnection = {
           );
       }
 
-      // Reset the connection state
-      this.address = null;
-      this.connection = null;
-      this.signer = null;
-      this.authMethod = null;
+      this._clearCache();
+      this._resetState();
 
       console.log("Wallet disconnected successfully");
     } catch (error) {
       console.error("Error disconnecting wallet:", error);
       throw error;
     }
+  },
+
+  _resetState() {
+    this.address = null;
+    this.connection = null;
+    this.signer = null;
+    this.authMethod = null;
   },
 
   async connectArConnect() {

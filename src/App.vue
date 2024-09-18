@@ -3,17 +3,20 @@ import { ref, onMounted, watch } from "vue";
 import SearchBar from "./components/SearchBar.vue";
 import BangEditor from "./components/BangEditor.vue";
 import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
-import { ArweaveWalletConnection as AWC } from "./helpers/arweaveWallet";
-import { handleSearch } from "./helpers/searchLogic";
+import HeadlessRedirect from "./components/HeadlessRedirect.vue";
+import { ArweaveWalletConnection as AWC } from "./helpers/arweaveWallet.js";
+import { handleSearch } from "./helpers/searchLogic.js";
 import { getFallbackSearchEngine } from "./helpers/bangHelpers.js";
 
 const searchResult = ref("");
 const currentView = ref("search");
-const bangs = ref({ success: true, Bangs: [] });
+const bangs = ref([]);
 const walletAddress = ref(null);
 const walletConnection = ref(null);
 const isLoading = ref(false);
 const searchBarRef = ref(null);
+const initialUrlParamsHandled = ref(false);
+const isHeadless = ref(false);
 
 async function onSearch(query) {
     const result = await handleSearch(
@@ -30,12 +33,7 @@ async function onSearch(query) {
 
 function toggleView() {
     if (currentView.value === "search") {
-        isLoading.value = true;
         currentView.value = "bangEditor";
-        // Simulate a delay for the dryRun (remove this in production)
-        setTimeout(() => {
-            isLoading.value = false;
-        }, 1000);
     } else {
         currentView.value = "search";
     }
@@ -48,8 +46,16 @@ function updateBangs(newBangs) {
 async function onWalletConnected(address) {
     walletAddress.value = address;
     walletConnection.value = AWC;
-    await fetchBangs();
-    await fetchFallbackSearchEngine();
+
+    isLoading.value = true;
+    try {
+        await Promise.all([fetchBangs(), fetchFallbackSearchEngine()]);
+        console.log("Bangs and fallback search engine fetched successfully");
+    } catch (error) {
+        console.error("Error fetching bangs or fallback search engine:", error);
+    } finally {
+        isLoading.value = false;
+    }
 
     if (searchBarRef.value) {
         searchBarRef.value.focusInput();
@@ -60,7 +66,7 @@ async function onWalletDisconnected() {
     walletAddress.value = null;
     walletConnection.value = null;
     bangs.value = { success: true, Bangs: [] };
-    fallbackSearchEngine.value = "https://google.com/search?q=%s"; // Reset to default
+    fallbackSearchEngine.value = "https://google.com/search?q=%s";
 }
 
 async function fetchBangs() {
@@ -72,32 +78,47 @@ async function fetchBangs() {
         const result = await walletConnection.value.dryRunArweave(
             [{ name: "Action", value: "ListBangs" }],
             "",
-            AWC.PROCESS_ID,
+            AWC.BANG_PROCESS_ID,
         );
         if (result && result.Messages && result.Messages.length > 0) {
             const bangsData = JSON.parse(result.Messages[0].Data);
             if (bangsData.success && Array.isArray(bangsData.Bangs)) {
-                bangs.value = { success: true, Bangs: bangsData.Bangs };
+                bangs.value = bangsData.Bangs;
             } else {
                 console.warn("Unexpected bangs data structure:", bangsData);
-                bangs.value = { success: true, Bangs: [] };
+                bangs.value = [];
             }
         } else {
             console.warn("No bangs data received");
-            bangs.value = { success: true, Bangs: [] };
+            bangs.value = [];
         }
     } catch (error) {
         console.error("Error fetching bangs:", error);
-        bangs.value = { success: true, Bangs: [] };
+        bangs.value = [];
+        throw error;
     }
 }
 
-function handleUrlParams() {
+async function handleUrlParams() {
+    if (initialUrlParamsHandled.value) return;
+
     const urlParams = new URLSearchParams(window.location.search);
     const query = urlParams.get("q");
+    console.log("URL Params", urlParams);
+
     if (query) {
-        onSearch(query);
+        isHeadless.value = true;
     }
+
+    initialUrlParamsHandled.value = true;
+}
+
+async function initializeApp() {
+    const reconnected = await AWC.reconnectFromCache();
+    if (reconnected) {
+        await onWalletConnected(AWC.address);
+    }
+    await handleUrlParams();
 }
 
 watch(() => window.location.search, handleUrlParams);
@@ -132,41 +153,45 @@ async function fetchFallbackSearchEngine() {
     }
 }
 
-onMounted(() => {
-    handleUrlParams();
+onMounted(async () => {
+    await initializeApp();
 });
 </script>
 
 <template>
-    <div class="top-right">
-        <button @click="toggleView" class="toggle-button">
-            {{ currentView === "search" ? "Edit Bangs" : "Search" }}
-        </button>
-        <ArweaveWalletConnection
-            @walletConnected="onWalletConnected"
-            @walletDisconnected="onWalletDisconnected"
-        />
-    </div>
-    <div class="container">
-        <h1>tinyNav</h1>
-        <SearchBar
-            v-if="currentView === 'search'"
-            @search="onSearch"
-            ref="searchBarRef"
-        />
-        <BangEditor
-            v-if="currentView === 'bangEditor'"
-            :bangs="bangs"
-            :walletConnection="walletConnection"
-            @update:bangs="updateBangs"
-        />
-        <div v-if="searchResult" class="result">{{ searchResult }}</div>
-    </div>
-    <div v-if="isLoading" class="loading-overlay">
-        <div class="loading-spinner"></div>
-    </div>
+    <HeadlessRedirect v-if="isHeadless" />
+    <template v-else>
+        <div class="top-right">
+            <button @click="toggleView" class="toggle-button">
+                {{ currentView === "search" ? "Edit Bangs" : "Search" }}
+            </button>
+            <ArweaveWalletConnection
+                @walletConnected="onWalletConnected"
+                @walletDisconnected="onWalletDisconnected"
+            />
+        </div>
+        <div class="container">
+            <h1>tinyNav</h1>
+            <SearchBar
+                v-if="currentView === 'search'"
+                @search="onSearch"
+                ref="searchBarRef"
+            />
+            <BangEditor
+                v-if="currentView === 'bangEditor'"
+                :bangs="bangs"
+                :walletConnection="walletConnection"
+                @update:bangs="updateBangs"
+            />
+            <div v-if="searchResult && showResult" class="result fade-out">
+                <!-- {{ searchResult }} -->
+            </div>
+        </div>
+        <div v-if="isLoading" class="loading-overlay">
+            <div class="loading-spinner"></div>
+        </div>
+    </template>
 </template>
-
 <style>
 :root {
     --bg-color: #ffffff;
@@ -235,6 +260,11 @@ h1 {
     font-size: 14px;
     line-height: 1.4;
     animation: fadeIn 0.3s ease-out;
+    transition: opacity 1s ease-out;
+}
+
+.fade-out {
+    animation: fadeOut 1s ease-out 3s forwards;
 }
 
 .top-right {
@@ -258,6 +288,15 @@ button {
 
 button:hover {
     background-color: var(--button-hover-bg);
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
 }
 
 @keyframes fadeIn {
