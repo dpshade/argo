@@ -88,20 +88,20 @@ useKeyboardShortcuts({ handleSearchShortcut, handleEditorShortcut });
 function toggleView() {
     currentView.value =
         currentView.value === "search" ? "bangEditor" : "search";
-    if (currentView.value === "bangEditor") {
-        incrementEditViewCounter();
-    }
 }
 
 async function onWalletConnected(address) {
     console.log("Wallet connected:", address);
-    store.isLoading = true;
     try {
         await connectWallet(address);
+        await fetchAndLoadData();
         if (searchBarRef.value) {
             searchBarRef.value.focusInput();
         }
+    } catch (error) {
+        console.error("Error during wallet connection:", error);
     } finally {
+        store.isLoading = false;
     }
 }
 
@@ -120,7 +120,6 @@ async function onWalletDisconnected() {
 const debouncedFetchAndLoadData = debounce(async () => {
     if (!isDataLoaded.value && isWalletConnected.value && processId.value) {
         console.log("Fetching and loading data...");
-        store.isLoading = true;
         try {
             await fetchAndLoadData();
             isDataLoaded.value = true;

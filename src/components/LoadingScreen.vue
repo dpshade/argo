@@ -6,8 +6,4 @@
 
 <script setup>
 import { store } from "../store";
-
-defineProps({
-    isLoading: Boolean,
-});
 </script>

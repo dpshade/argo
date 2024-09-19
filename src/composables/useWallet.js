@@ -8,6 +8,19 @@ export function useWallet() {
   const walletConnection = ref(null);
   const processId = ref(null);
 
+  async function reconnectLastWallet() {
+    const lastConnectedWallet = localStorage.getItem("lastConnectedWallet");
+    if (lastConnectedWallet) {
+      try {
+        await connectWallet(lastConnectedWallet);
+        return true;
+      } catch (error) {
+        console.error("Failed to reconnect last wallet:", error);
+      }
+    }
+    return false;
+  }
+
   async function connectWallet(address) {
     try {
       store.isLoading = true;
@@ -22,9 +35,11 @@ export function useWallet() {
       walletConnection.value = AWC;
       processId.value = AWC.processId;
       isWalletConnected.value = true;
+      localStorage.setItem("lastConnectedWallet", address);
     } catch (error) {
       console.error("Error during wallet connection:", error);
-      disconnectWallet();
+      await disconnectWallet();
+      throw error;
     }
   }
 
@@ -60,5 +75,6 @@ export function useWallet() {
     connectWallet,
     disconnectWallet,
     reconnectFromCache,
+    reconnectLastWallet,
   };
 }

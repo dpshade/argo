@@ -1,4 +1,4 @@
-import { ref, watch, inject } from "vue";
+import { ref, watch } from "vue";
 import {
   getAllBangs,
   updateFallbackSearchEngine,
@@ -7,12 +7,12 @@ import {
   updateBang,
   deleteBang,
 } from "../helpers/bangHelpers";
+import { cacheModule } from "../helpers/cacheModule";
 
 export function useBangs(walletAddress, walletConnection, processId) {
   const bangs = ref([]);
   const fallbackSearchEngine = ref("https://google.com/search?q=%s");
   const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
-  const CACHE_DURATION = 5 * 60 * 1000;
 
   function getCacheKey() {
     return `bangsData_${walletAddress.value}`;
@@ -27,27 +27,23 @@ export function useBangs(walletAddress, walletConnection, processId) {
     }
 
     const cacheKey = getCacheKey();
-    const cachedData = localStorage.getItem(cacheKey);
+    const cachedData = cacheModule.get(cacheKey, "bangs");
 
     if (!forceUpdate && cachedData) {
-      const { data, timestamp } = JSON.parse(cachedData);
-      if (Date.now() - timestamp < CACHE_DURATION) {
-        console.log("Using cached data for wallet:", walletAddress.value);
-        updateUIData(data);
-        return;
-      }
+      console.log("Using cached data for wallet:", walletAddress.value);
+      updateUIData(cachedData);
+      return;
     }
 
     try {
       const result = await getAllBangs(walletConnection.value);
       updateUIData(result);
-      updateCache(result);
+      cacheModule.set(cacheKey, result, "bangs");
       console.log(
         "Data fetched and updated successfully for wallet:",
         walletAddress.value,
       );
 
-      // Perform dry run after fetching data
       await dryRunUpdate();
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -63,7 +59,7 @@ export function useBangs(walletAddress, walletConnection, processId) {
     try {
       const result = await getAllBangs(walletConnection.value, true);
       updateUIData(result);
-      updateCache(result);
+      cacheModule.set(getCacheKey(), result, "bangs");
       console.log("Dry run update completed for wallet:", walletAddress.value);
     } catch (error) {
       console.error("Error during dry run update:", error);
@@ -75,17 +71,6 @@ export function useBangs(walletAddress, walletConnection, processId) {
     fallbackSearchEngine.value =
       data.FallbackSearchEngine || fallbackSearchEngine.value;
     arweaveExplorer.value = data.ArweaveExplorer || arweaveExplorer.value;
-  }
-
-  function updateCache(data) {
-    const cacheKey = getCacheKey();
-    localStorage.setItem(
-      cacheKey,
-      JSON.stringify({
-        data: data,
-        timestamp: Date.now(),
-      }),
-    );
   }
 
   async function updateBangs(newBangs) {
@@ -110,7 +95,6 @@ export function useBangs(walletAddress, walletConnection, processId) {
         }
       }
 
-      // Fetch updated data after changes
       await fetchAndLoadData(true);
     } catch (error) {
       console.error("Error updating bangs:", error);
@@ -127,10 +111,11 @@ export function useBangs(walletAddress, walletConnection, processId) {
     try {
       await updateFallbackSearchEngine(walletConnection.value, newFallback);
       fallbackSearchEngine.value = newFallback;
-      updateCache({
-        ...JSON.parse(localStorage.getItem(getCacheKey())).data,
-        FallbackSearchEngine: newFallback,
-      });
+      const cachedData = cacheModule.get(getCacheKey(), "bangs");
+      if (cachedData) {
+        cachedData.FallbackSearchEngine = newFallback;
+        cacheModule.set(getCacheKey(), cachedData, "bangs");
+      }
     } catch (error) {
       console.error("Error updating fallback search engine:", error);
       throw error;
@@ -146,21 +131,22 @@ export function useBangs(walletAddress, walletConnection, processId) {
     try {
       await updateArweaveExplorer(walletConnection.value, newExplorer);
       arweaveExplorer.value = newExplorer;
-      updateCache({
-        ...JSON.parse(localStorage.getItem(getCacheKey())).data,
-        ArweaveExplorer: newExplorer,
-      });
+      const cachedData = cacheModule.get(getCacheKey(), "bangs");
+      if (cachedData) {
+        cachedData.ArweaveExplorer = newExplorer;
+        cacheModule.set(getCacheKey(), cachedData, "bangs");
+      }
     } catch (error) {
       console.error("Error updating Arweave explorer:", error);
       throw error;
     }
   }
 
-  // Watch for wallet address changes
   function resetState() {
     bangs.value = [];
     fallbackSearchEngine.value = "https://google.com/search?q=%s";
     arweaveExplorer.value = "https://viewblock.io/arweave/tx/%s";
+    cacheModule.clear("bangs");
   }
 
   return {

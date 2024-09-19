@@ -1,4 +1,5 @@
-// Create: Add a new bang
+import { cacheModule } from "./cacheModule";
+
 export async function createBang(walletConnection, name, url) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
@@ -17,10 +18,14 @@ export async function createBang(walletConnection, name, url) {
     walletConnection.processId,
   );
   console.log("Create bang result:", result);
+
+  if (result.success) {
+    cacheModule.set(name, { url }, "redirect");
+  }
+
   return result;
 }
 
-// Read: Get all bangs
 export async function getAllBangs(walletConnection, dryRun = true) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
@@ -60,7 +65,6 @@ export async function getAllBangs(walletConnection, dryRun = true) {
     }
   }
 
-  // Return default values if parsing fails or data is not in expected format
   return {
     success: false,
     Bangs: [],
@@ -69,7 +73,6 @@ export async function getAllBangs(walletConnection, dryRun = true) {
   };
 }
 
-// Update: Modify an existing bang
 export async function updateBang(walletConnection, oldName, newName, url) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
@@ -77,7 +80,6 @@ export async function updateBang(walletConnection, oldName, newName, url) {
 
   console.log(`Updating bang: ${oldName} to ${newName} with URL: ${url}`);
 
-  // Check if the URL starts with http:// or https://
   url = ensureHttpsWww(url);
 
   try {
@@ -94,6 +96,11 @@ export async function updateBang(walletConnection, oldName, newName, url) {
 
     console.log("Update bang result:", result);
 
+    if (result.success) {
+      cacheModule.invalidate(oldName, "redirect");
+      cacheModule.set(newName, { url }, "redirect");
+    }
+
     if (result.Error) {
       throw new Error(result.Error);
     }
@@ -105,7 +112,6 @@ export async function updateBang(walletConnection, oldName, newName, url) {
   }
 }
 
-// Delete: Remove a bang
 export async function deleteBang(walletConnection, name) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
@@ -121,31 +127,11 @@ export async function deleteBang(walletConnection, name) {
   );
   console.log("Delete bang result:", result);
 
-  // Clean up cached redirects
-  cleanupCachedRedirects(name);
+  if (result.success) {
+    cacheModule.invalidate(name, "redirect");
+  }
 
   return result;
-}
-
-function cleanupCachedRedirects(bangName) {
-  // Clean up session storage
-  let sessionCachedRedirects = JSON.parse(
-    sessionStorage.getItem("cachedRedirects") || "{}",
-  );
-  delete sessionCachedRedirects[bangName];
-  sessionStorage.setItem(
-    "cachedRedirects",
-    JSON.stringify(sessionCachedRedirects),
-  );
-
-  // Clean up local storage
-  let localCachedRedirects = JSON.parse(
-    localStorage.getItem("cachedRedirects") || "{}",
-  );
-  delete localCachedRedirects[bangName];
-  localStorage.setItem("cachedRedirects", JSON.stringify(localCachedRedirects));
-
-  console.log(`Cleaned up cached redirects for bang: ${bangName}`);
 }
 
 export async function updateFallbackSearchEngine(walletConnection, url) {
@@ -153,11 +139,7 @@ export async function updateFallbackSearchEngine(walletConnection, url) {
     throw new Error("Wallet not connected");
   }
 
-  // Check if the URL starts with http:// or https://
-  if (!/^https?:\/\//i.test(url)) {
-    // If not, add https:// to the beginning
-    url = "https://" + url;
-  }
+  url = ensureHttpsWww(url);
 
   return await walletConnection.sendMessageToArweave(
     [
@@ -174,11 +156,7 @@ export async function updateArweaveExplorer(walletConnection, url) {
     throw new Error("Wallet not connected");
   }
 
-  // Check if the URL starts with http:// or https://
-  if (!/^https?:\/\//i.test(url)) {
-    // If not, add https:// to the beginning
-    url = "https://" + url;
-  }
+  url = ensureHttpsWww(url);
 
   return await walletConnection.sendMessageToArweave(
     [

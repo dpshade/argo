@@ -1,81 +1,87 @@
-<template>
-    <!-- Intentionally left empty for truly headless operation -->
-</template>
-
 <script setup>
-import { onMounted } from "vue";
+import { onMounted, inject } from "vue";
 import { handleSearch } from "../helpers/searchLogic.js";
-import { ArweaveWalletConnection as AWC } from "../helpers/arweaveWallet.js";
 import { getAllBangs } from "../helpers/bangHelpers.js";
+import { cacheModule } from "../helpers/cacheModule";
+import { useWallet } from "../composables/useWallet";
 
-const CACHE_DURATION = 1000 * 60 * 5;
-
-function getCachedData(key) {
-    const item = localStorage.getItem(key);
-    if (item) {
-        const { value, timestamp } = JSON.parse(item);
-        if (Date.now() - timestamp < CACHE_DURATION) {
-            return value;
-        }
-    }
-    return null;
-}
-
-function setCachedData(key, value) {
-    localStorage.setItem(key, JSON.stringify({ value, timestamp: Date.now() }));
-}
+const { walletConnection, reconnectLastWallet } = useWallet();
 
 onMounted(async () => {
     const urlParams = new URLSearchParams(window.location.search);
     const query = urlParams.get("q");
+    console.log("HeadlessRedirect mounted, query:", query);
 
     if (query) {
         try {
-            // Always attempt to reconnect wallet
-            const reconnected = await AWC.reconnectFromCache();
-
             let bangs = [];
             let fallbackSearchEngine = "https://google.com/search?q=%s";
             let arweaveExplorer = "https://viewblock.io/arweave/tx/%s";
 
-            if (reconnected) {
-                const result = await getAllBangs(AWC);
+            // Attempt to reconnect the last used wallet
+            const reconnected = await reconnectLastWallet();
+
+            if (reconnected && walletConnection.value) {
+                console.log("Reconnected to last used wallet");
+                const result = await getAllBangs(walletConnection.value);
 
                 if (result.success) {
                     bangs = result.Bangs;
                     fallbackSearchEngine = result.FallbackSearchEngine;
                     arweaveExplorer = result.ArweaveExplorer;
-                    setCachedData("bangs", bangs);
-                    setCachedData("fallbackSearchEngine", fallbackSearchEngine);
-                    setCachedData("arweaveExplorer", arweaveExplorer);
+                    cacheModule.set("bangs", bangs, "headless");
+                    cacheModule.set(
+                        "fallbackSearchEngine",
+                        fallbackSearchEngine,
+                        "headless",
+                    );
+                    cacheModule.set(
+                        "arweaveExplorer",
+                        arweaveExplorer,
+                        "headless",
+                    );
                 }
             } else {
-                // If reconnection failed, use cached data
-                bangs = getCachedData("bangs") || [];
+                console.log("No valid wallet connection, using cached data");
+                bangs = cacheModule.get("bangs", "headless") || [];
                 fallbackSearchEngine =
-                    getCachedData("fallbackSearchEngine") ||
+                    cacheModule.get("fallbackSearchEngine", "headless") ||
                     fallbackSearchEngine;
                 arweaveExplorer =
-                    getCachedData("arweaveExplorer") || arweaveExplorer;
+                    cacheModule.get("arweaveExplorer", "headless") ||
+                    arweaveExplorer;
             }
 
             // Perform search
+            console.log("Performing search with query:", query);
             const result = await handleSearch(
                 query,
                 bangs,
-                AWC,
+                walletConnection.value,
                 fallbackSearchEngine,
                 arweaveExplorer,
             );
+            console.log("Search result:", result);
+
             if (result.startsWith("Redirecting to:")) {
                 const url = result.split(": ")[1];
+                console.log("Redirecting to:", url);
                 window.location.replace(url);
+            } else {
+                console.log("No redirection, result:", result);
             }
         } catch (error) {
             console.error("Error during headless redirect:", error);
             const fallbackUrl = `https://google.com/search?q=${encodeURIComponent(query)}`;
+            console.log("Falling back to:", fallbackUrl);
             window.location.replace(fallbackUrl);
         }
+    } else {
+        console.log("No query parameter found");
     }
 });
 </script>
+
+<template>
+    <!-- This component doesn't need a template as it's purely functional -->
+</template>

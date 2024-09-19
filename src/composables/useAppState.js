@@ -27,6 +27,7 @@ export function useAppState() {
 
     if (query) {
       isHeadless.value = true;
+      console.log("Headless mode activated with query:", query);
     }
   }
 
