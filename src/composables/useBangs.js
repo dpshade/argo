@@ -13,7 +13,6 @@ export function useBangs(walletAddress, walletConnection, processId) {
   const fallbackSearchEngine = ref("https://google.com/search?q=%s");
   const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
   const CACHE_DURATION = 5 * 60 * 1000;
-  const editViewCounter = ref(0);
 
   function getCacheKey() {
     return `bangsData_${walletAddress.value}`;
@@ -24,7 +23,6 @@ export function useBangs(walletAddress, walletConnection, processId) {
       console.warn(
         "Wallet not connected or process ID not set, skipping data fetch",
       );
-
       return;
     }
 
@@ -48,6 +46,9 @@ export function useBangs(walletAddress, walletConnection, processId) {
         "Data fetched and updated successfully for wallet:",
         walletAddress.value,
       );
+
+      // Perform dry run after fetching data
+      await dryRunUpdate();
     } catch (error) {
       console.error("Error fetching data:", error);
     }
@@ -85,13 +86,6 @@ export function useBangs(walletAddress, walletConnection, processId) {
         timestamp: Date.now(),
       }),
     );
-  }
-
-  function incrementEditViewCounter() {
-    editViewCounter.value++;
-    if (editViewCounter.value % 3 === 0) {
-      dryRunUpdate();
-    }
   }
 
   async function updateBangs(newBangs) {
@@ -177,7 +171,6 @@ export function useBangs(walletAddress, walletConnection, processId) {
     updateBangs,
     updateFallback,
     updateExplorer,
-    incrementEditViewCounter,
     resetState,
   };
 }

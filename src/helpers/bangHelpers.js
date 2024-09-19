@@ -20,24 +20,6 @@ export async function createBang(walletConnection, name, url) {
   return result;
 }
 
-// Read: Get a specific bang by name
-export async function getBang(walletConnection, name) {
-  if (!walletConnection) {
-    throw new Error("Wallet not connected");
-  }
-  console.log(`Getting bang: ${name}`);
-  const result = await walletConnection.dryRunArweave(
-    [
-      { name: "Action", value: "ReadBang" },
-      { name: "Name", value: name },
-    ],
-    "",
-    walletConnection.processId,
-  );
-  console.log("Get bang result:", result);
-  return result;
-}
-
 // Read: Get all bangs
 export async function getAllBangs(walletConnection, dryRun = true) {
   if (!walletConnection) {

@@ -149,28 +149,3 @@ export async function handleSearch(
 
   return `Redirecting to: ${searchUrl}`;
 }
-
-// You might want to keep this function for use in other parts of your application
-export async function getFallbackSearchEngineUrl(walletConnection) {
-  if (!walletConnection) {
-    return "https://google.com/search?q=%s"; // Default fallback
-  }
-
-  try {
-    const fallbackResult = await getFallbackSearchEngineUrl(walletConnection);
-    if (
-      fallbackResult &&
-      fallbackResult.Messages &&
-      fallbackResult.Messages.length > 0
-    ) {
-      const fallbackData = JSON.parse(fallbackResult.Messages[0].Data);
-      if (fallbackData.success && fallbackData.url) {
-        return fallbackData.url;
-      }
-    }
-  } catch (error) {
-    console.error("Error fetching fallback search engine:", error);
-  }
-
-  return "https://google.com/search?q=%s";
-}

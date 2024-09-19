@@ -8,8 +8,6 @@ export function useWallet() {
   const walletConnection = ref(null);
   const processId = ref(null);
 
-  const isFullyConnected = ref(false);
-
   async function connectWallet(address) {
     try {
       store.isLoading = true;
@@ -24,7 +22,6 @@ export function useWallet() {
       walletConnection.value = AWC;
       processId.value = AWC.processId;
       isWalletConnected.value = true;
-      isFullyConnected.value = true;
     } catch (error) {
       console.error("Error during wallet connection:", error);
       disconnectWallet();
@@ -36,7 +33,6 @@ export function useWallet() {
     walletConnection.value = null;
     processId.value = null;
     isWalletConnected.value = false;
-    isFullyConnected.value = false;
     await AWC.disconnect();
   }
 

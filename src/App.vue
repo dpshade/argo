@@ -11,16 +11,16 @@ import BangEditor from "./components/BangEditor.vue";
 import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
+import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
+
 import { store } from "./store";
 
 const searchBarRef = ref(null);
 const bangEditorRef = ref(null);
-const isInitialized = ref(false);
 const isDataLoaded = ref(false);
 
 const {
     isWalletConnected,
-    isFullyConnected,
     walletAddress,
     walletConnection,
     processId,
@@ -59,7 +59,6 @@ provide("wallet", {
     connectWallet,
     disconnectWallet,
 });
-provide("isInitialized", isInitialized);
 provide("cachedBangsData", ref(null));
 
 function handleSearchShortcut() {
@@ -133,7 +132,6 @@ const debouncedFetchAndLoadData = debounce(async () => {
 
 onMounted(async () => {
     await handleUrlParams();
-    isInitialized.value = true;
 });
 
 watchEffect(() => {
@@ -237,6 +235,7 @@ watch(isWalletConnected, (newValue) => {
                 {{ searchResult }}
             </div>
         </div>
+        <KeyboardShortcuts />
     </template>
     <LoadingScreen />
 </template>
