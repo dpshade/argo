@@ -168,3 +168,52 @@ export async function getFallbackSearchEngine(walletConnection) {
 
   return { success: false, url: "https://google.com/search?q=%s" };
 }
+
+export async function updateArweaveExplorer(walletConnection, url) {
+  if (!walletConnection) {
+    throw new Error("Wallet not connected");
+  }
+
+  // Check if the URL starts with http:// or https://
+  if (!/^https?:\/\//i.test(url)) {
+    // If not, add https:// to the beginning
+    url = "https://" + url;
+  }
+
+  return await walletConnection.sendMessageToArweave(
+    [
+      { name: "Action", value: "UpdateArweaveExplorer" },
+      { name: "URL", value: url },
+    ],
+    "",
+    BANG_PROCESS_ID,
+  );
+}
+
+export async function getArweaveExplorer(walletConnection) {
+  const cachedExplorer = sessionStorage.getItem("cachedArweaveExplorer");
+  if (cachedExplorer) {
+    return JSON.parse(cachedExplorer);
+  }
+
+  if (!walletConnection) {
+    throw new Error("Wallet not connected");
+  }
+
+  const result = await walletConnection.dryRunArweave(
+    [{ name: "Action", value: "GetArweaveExplorer" }],
+    "",
+    BANG_PROCESS_ID,
+  );
+
+  if (result && result.Messages && result.Messages.length > 0) {
+    const explorerData = JSON.parse(result.Messages[0].Data);
+    sessionStorage.setItem(
+      "cachedArweaveExplorer",
+      JSON.stringify(explorerData),
+    );
+    return explorerData;
+  }
+
+  return { success: false, url: "https://viewblock.io/arweave/tx/%s" };
+}

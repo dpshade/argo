@@ -5,6 +5,7 @@ import {
     updateBang,
     deleteBang,
     updateFallbackSearchEngine,
+    updateArweaveExplorer,
 } from "../helpers/bangHelpers.js";
 import { ArweaveWalletConnection } from "../helpers/arweaveWallet";
 
@@ -14,6 +15,10 @@ const props = defineProps({
         default: () => [],
     },
     fallbackSearchEngine: {
+        type: String,
+        default: "",
+    },
+    arweaveExplorer: {
         type: String,
         default: "",
     },
@@ -27,9 +32,11 @@ const emit = defineEmits(["update:bangs", "force-update"]);
 
 const localBangs = ref([]);
 const fallbackSearchEngine = ref("");
+const localArweaveExplorer = ref("");
 const newBangName = ref("");
 const newBangUrl = ref("");
 const showFallbackSuccess = ref(false);
+const showArweaveExplorerSuccess = ref(false);
 
 watch(
     () => props.bangs,
@@ -47,42 +54,13 @@ watch(
     { immediate: true },
 );
 
-const newBangNameInput = ref(null);
-
-function focusNewBangInput() {
-    if (newBangNameInput.value) {
-        newBangNameInput.value.focus();
-    }
-}
-
-function getClickPosition(element, x) {
-    const rect = element.getBoundingClientRect();
-    const leftPadding = parseInt(getComputedStyle(element).paddingLeft, 10);
-    return Math.round((x - rect.left - leftPadding) / 7); // Assuming average char width of 7px
-}
-
-function editBang(index, field, event) {
-    const bang = localBangs.value[index];
-    bang.editing = true;
-    bang.editName = bang.name;
-    bang.editUrl = bang.url;
-
-    nextTick(() => {
-        const inputElement = document.getElementById(`bang-${field}-${index}`);
-        if (inputElement) {
-            inputElement.focus();
-            const clickPosition = getClickPosition(event.target, event.clientX);
-            inputElement.setSelectionRange(clickPosition, clickPosition);
-        }
-    });
-}
-
-function cancelEdit(index) {
-    const bang = localBangs.value[index];
-    bang.editing = false;
-    delete bang.editName;
-    delete bang.editUrl;
-}
+watch(
+    () => props.arweaveExplorer,
+    (newExplorer) => {
+        localArweaveExplorer.value = newExplorer;
+    },
+    { immediate: true },
+);
 
 async function addNewBang() {
     if (newBangName.value && newBangUrl.value) {
@@ -145,6 +123,43 @@ function updateBangs() {
     emit("update:bangs", JSON.parse(JSON.stringify(localBangs.value)));
 }
 
+const newBangNameInput = ref(null);
+
+function focusNewBangInput() {
+    if (newBangNameInput.value) {
+        newBangNameInput.value.focus();
+    }
+}
+
+function getClickPosition(element, x) {
+    const rect = element.getBoundingClientRect();
+    const leftPadding = parseInt(getComputedStyle(element).paddingLeft, 10);
+    return Math.round((x - rect.left - leftPadding) / 7); // Assuming average char width of 7px
+}
+
+function editBang(index, field, event) {
+    const bang = localBangs.value[index];
+    bang.editing = true;
+    bang.editName = bang.name;
+    bang.editUrl = bang.url;
+
+    nextTick(() => {
+        const inputElement = document.getElementById(`bang-${field}-${index}`);
+        if (inputElement) {
+            inputElement.focus();
+            const clickPosition = getClickPosition(event.target, event.clientX);
+            inputElement.setSelectionRange(clickPosition, clickPosition);
+        }
+    });
+}
+
+function cancelEdit(index) {
+    const bang = localBangs.value[index];
+    bang.editing = false;
+    delete bang.editName;
+    delete bang.editUrl;
+}
+
 async function saveFallbackSearchEngine() {
     try {
         await updateFallbackSearchEngine(
@@ -159,6 +174,23 @@ async function saveFallbackSearchEngine() {
     } catch (error) {
         console.error("Error updating fallback search engine:", error);
         alert(`Failed to update fallback search engine: ${error.message}`);
+    }
+}
+
+async function saveArweaveExplorer() {
+    try {
+        await updateArweaveExplorer(
+            props.walletConnection,
+            localArweaveExplorer.value,
+        );
+        showArweaveExplorerSuccess.value = true;
+        setTimeout(() => {
+            showArweaveExplorerSuccess.value = false;
+        }, 3000);
+        emit("update:arweaveExplorer", localArweaveExplorer.value);
+    } catch (error) {
+        console.error("Error updating Arweave explorer:", error);
+        alert(`Failed to update Arweave explorer: ${error.message}`);
     }
 }
 
@@ -288,8 +320,8 @@ defineExpose({ focusNewBangInput });
             />
             <button type="submit">Add Bang</button>
         </form>
+        <h2>Defaults</h2>
         <div class="fallback-search-engine">
-            <h3>Fallback Search Engine</h3>
             <form
                 @submit.prevent="saveFallbackSearchEngine"
                 class="fallback-form"
@@ -301,6 +333,24 @@ defineExpose({ focusNewBangInput });
                 />
                 <button type="submit">Save</button>
                 <span v-if="showFallbackSuccess" class="success-checkmark"
+                    >✓</span
+                >
+            </form>
+        </div>
+        <div class="arweave-explorer">
+            <form
+                @submit.prevent="saveArweaveExplorer"
+                class="arweave-explorer-form"
+            >
+                <input
+                    v-model="localArweaveExplorer"
+                    placeholder="Enter Arweave explorer URL (use %s for TxID)"
+                    required
+                />
+                <button type="submit">Save</button>
+                <span
+                    v-if="showArweaveExplorerSuccess"
+                    class="success-checkmark"
                     >✓</span
                 >
             </form>
@@ -506,6 +556,49 @@ button:hover {
 }
 
 .fallback-form button:hover {
+    background-color: var(--button-hover-bg);
+}
+
+.arweave-explorer {
+    margin-top: 10px;
+}
+
+.arweave-explorer h3 {
+    color: var(--header-text-color);
+    margin-bottom: 20px;
+}
+
+.arweave-explorer-form {
+    display: flex;
+    width: 100%;
+    align-items: center;
+}
+
+.arweave-explorer-form input {
+    flex-grow: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 5px 0 0 5px;
+    background-color: var(--input-bg);
+    color: var(--text-color);
+}
+
+.arweave-explorer-form input:focus {
+    outline: none;
+    background-color: var(--input-focus-bg);
+}
+
+.arweave-explorer-form button {
+    padding: 10px 20px;
+    background-color: var(--button-bg);
+    color: white;
+    border: none;
+    border-radius: 0 5px 5px 0;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.arweave-explorer-form button:hover {
     background-color: var(--button-hover-bg);
 }
 

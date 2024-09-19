@@ -7,7 +7,11 @@ import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
 import { ArweaveWalletConnection as AWC } from "./helpers/arweaveWallet.js";
 import { handleSearch } from "./helpers/searchLogic.js";
-import { getAllBangs, getFallbackSearchEngine } from "./helpers/bangHelpers.js";
+import {
+    getAllBangs,
+    getFallbackSearchEngine,
+    getArweaveExplorer,
+} from "./helpers/bangHelpers";
 import { store } from "./store";
 
 const searchResult = ref("");
@@ -21,6 +25,7 @@ const isHeadless = ref(false);
 const isDarkMode = ref(false);
 const isWalletConnected = ref(false);
 const fallbackSearchEngine = ref("https://google.com/search?q=%s");
+const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
 const bangEditorRef = ref(null);
 const cachedBangsData = ref(null);
 const isInitialized = ref(false);
@@ -87,11 +92,12 @@ async function onSearch(query) {
             bangs.value,
             walletConnection.value,
             fallbackSearchEngine.value,
+            arweaveExplorer.value,
         );
         searchResult.value = result;
         if (result.startsWith("Redirecting to:")) {
             const url = result.split(": ")[1];
-            window.location.href = url;
+            window.open(url, "_blank");
         }
     } catch (error) {
         console.error("Error during search:", error);
@@ -161,6 +167,14 @@ async function onWalletConnected(address) {
     walletAddress.value = address;
     walletConnection.value = AWC;
     isWalletConnected.value = true;
+
+    try {
+        await AWC.checkAndAddUserProcess();
+        console.log("User process ID:", AWC.processId);
+    } catch (error) {
+        console.error("Error checking/adding user process:", error);
+    }
+
     await fetchAndLoadData(true);
     if (searchBarRef.value) {
         searchBarRef.value.focusInput();
@@ -172,22 +186,30 @@ async function fetchAndLoadData(forceUpdate = false) {
         console.log("Using cached data for this session");
         bangs.value = cachedBangsData.value.bangs;
         fallbackSearchEngine.value = cachedBangsData.value.fallbackSearchEngine;
+        arweaveExplorer.value = cachedBangsData.value.arweaveExplorer;
         return;
     }
 
     if (!forceUpdate) {
         loadFromCache();
-        if (bangs.value.length > 0 && fallbackSearchEngine.value) {
+        if (
+            bangs.value.length > 0 &&
+            fallbackSearchEngine.value &&
+            arweaveExplorer.value
+        ) {
             return;
         }
     }
 
     try {
         store.isLoading = true;
-        const [bangsResult, fallbackResult] = await Promise.all([
-            getAllBangs(walletConnection.value),
-            getFallbackSearchEngine(walletConnection.value),
-        ]);
+        const [bangsResult, fallbackResult, explorerResult] = await Promise.all(
+            [
+                getAllBangs(walletConnection.value),
+                getFallbackSearchEngine(walletConnection.value),
+                getArweaveExplorer(walletConnection.value),
+            ],
+        );
 
         if (
             bangsResult &&
@@ -203,14 +225,28 @@ async function fetchAndLoadData(forceUpdate = false) {
             saveFallbackToCache(fallbackResult.url);
         }
 
+        if (explorerResult && explorerResult.success && explorerResult.url) {
+            arweaveExplorer.value = explorerResult.url;
+            sessionStorage.setItem(
+                "currentArweaveExplorer",
+                explorerResult.url,
+            );
+        }
+
         cachedBangsData.value = {
             bangs: bangs.value,
             fallbackSearchEngine: fallbackSearchEngine.value,
+            arweaveExplorer: arweaveExplorer.value,
         };
 
-        console.log("Bangs and fallback search engine fetched successfully");
+        console.log(
+            "Bangs, fallback search engine, and Arweave explorer fetched successfully",
+        );
+        console.log(bangs);
+        console.log(fallbackSearchEngine);
+        console.log(arweaveExplorer);
     } catch (error) {
-        console.error("Error fetching bangs or fallback search engine:", error);
+        console.error("Error fetching data:", error);
     } finally {
         store.isLoading = false;
     }
@@ -374,11 +410,15 @@ defineExpose({
                 v-if="currentView === 'bangEditor' && isWalletConnected"
                 :bangs="bangs"
                 :fallbackSearchEngine="fallbackSearchEngine"
+                :arweaveExplorer="arweaveExplorer"
                 :walletConnection="walletConnection"
                 @update:bangs="updateBangs"
+                @update:fallbackSearchEngine="fallbackSearchEngine = $event"
+                @update:arweaveExplorer="arweaveExplorer = $event"
                 @force-update="fetchAndLoadData(true)"
                 ref="bangEditorRef"
             />
+
             <div v-if="searchResult && showResult" class="result fade-out">
                 <!-- {{ searchResult }} -->
             </div>

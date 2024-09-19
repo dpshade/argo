@@ -9,8 +9,10 @@ import {
   spawn,
 } from "@permaweb/aoconnect";
 
-const PROCESS_ID = "ZtS3h94Orj7jT94m3uP-n7iC5_56Z9LL24Vx21LW03k";
 const BANG_PROCESS_ID = "KdLdVvKmcmb3vqh9nVXH3IUVb8w3r5M_n8cdv67ZvmI";
+const USER_PROCESS_MAP_ID = "fZnoaLqIP1zk3C1AZ9s546MmOdE-ujjOaGtMzj431cw";
+const USER_PROCESS_MODULE = "ffvkmPM1jW71hFlBpVbaIapBa_Wl6UIwfdTkDNqsKNw";
+const SCHEDULER_ID = "_GQ33BkPtZrqxA84vM8Zk-N2aO0toNNu_C-l-rawrBA";
 
 export const ArweaveWalletConnection = {
   address: null,
@@ -29,6 +31,8 @@ export const ArweaveWalletConnection = {
 
         this._createSigner();
         this._cacheWalletInfo();
+
+        await this.checkAndAddUserProcess();
       } else {
         console.error("Failed to obtain wallet address");
       }
@@ -179,7 +183,11 @@ export const ArweaveWalletConnection = {
     const arweaveAppWallet = new ArweaveWebWallet();
     arweaveAppWallet.setUrl("https://arweave.app");
     await arweaveAppWallet.connect();
-    this.address = await arweaveAppWallet.getActiveAddress();
+    this.generatedWallet = arweaveAppWallet;
+    const arweaveWalletNamespace = arweaveAppWallet.namespaces.arweaveWallet;
+
+    // Get the active address
+    this.address = arweaveWalletNamespace.getActiveAddress();
     this.connection = arweaveAppWallet;
     this.authMethod = "ArweaveApp";
   },
@@ -257,17 +265,97 @@ export const ArweaveWalletConnection = {
     }
   },
 
-  async spawnProcess(module, scheduler, tags, data) {
+  async checkAndAddUserProcess() {
+    try {
+      const processId = await this.getUserProcessId();
+      if (!processId) {
+        const newProcessId = await this.createUserProcess();
+        console.log("New user process created:", newProcessId);
+      } else {
+        console.log("Existing user process found:", processId);
+      }
+      this.processId = processId;
+    } catch (error) {
+      console.error("Error checking and adding user process:", error);
+      throw error;
+    }
+  },
+
+  async getUserProcessId() {
     if (!this.signer) {
       throw new Error("Wallet not connected");
     }
+
+    try {
+      const { Messages, Error } = await this.dryRunArweave(
+        [{ name: "Action", value: "GetUser" }],
+        "",
+        USER_PROCESS_MAP_ID,
+      );
+
+      if (Error) {
+        console.error("Error getting user process ID:", Error);
+        return await this.createUserProcess();
+      }
+
+      if (Messages && Messages.length > 0) {
+        const userData = JSON.parse(Messages[0].Data);
+        if (userData.success && userData.processId) {
+          this.processId = userData.processId;
+          return userData.processId;
+        }
+      }
+
+      return await this.createUserProcess();
+    } catch (error) {
+      console.error("Error in getUserProcessId:", error);
+      throw error;
+    }
+  },
+
+  async createUserProcess() {
+    try {
+      const newProcessId = await this.spawnProcess(
+        USER_PROCESS_MODULE,
+        SCHEDULER_ID,
+        [{ name: "App-Name", value: "tinyNav" }],
+        "Spawning process...",
+      );
+
+      const { Messages, Error } = await this.sendMessageToArweave(
+        [
+          { name: "Action", value: "AddUser" },
+          { name: "ProcessID", value: newProcessId },
+        ],
+        "",
+        USER_PROCESS_MAP_ID,
+      );
+
+      if (Error) {
+        throw new Error(Error);
+      }
+
+      console.log("User process created and added:", newProcessId);
+      this.processId = newProcessId;
+      return newProcessId;
+    } catch (error) {
+      console.error("Error creating user process:", error);
+      throw error;
+    }
+  },
+
+  async spawnProcess(moduleId, schedulerId, tags, data) {
+    if (!this.signer) {
+      throw new Error("Wallet not connected");
+    }
+
     try {
       const processId = await spawn({
-        module,
-        scheduler,
+        module: moduleId,
+        scheduler: schedulerId,
         signer: this.signer,
-        tags,
-        data,
+        tags: tags,
+        data: data,
       });
 
       return processId;

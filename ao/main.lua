@@ -1,10 +1,13 @@
+-- aos tinyNav
+
 local json = require("json")
 
 print("Bang CRUD Handlers Script started")
 
 -- Initialize the data storage table
 Bangs = Bangs or {}
-FallbackSearchEngine = "https://google.com/search?q=%s"
+FallbackSearchEngine = "https://google.com/search?q=%s" or FallbackSearchEngine
+ArweaveExplorer = "https://viewblock.io/arweave/tx/%s" or ArweaveExplorer
 
 -- Handler to update fallback search engine
 Handlers.add('UpdateFallbackSearchEngine',
@@ -46,6 +49,50 @@ Handlers.add('GetFallbackSearchEngine',
             Action = "Response",
             Tags = { ["Action"] = "GetFallbackSearchEngine" },
             Data = json.encode({ success = true, url = FallbackSearchEngine })
+        })
+    end
+)
+
+-- Handler to update Arweave explorer
+Handlers.add('UpdateArweaveExplorer',
+    Handlers.utils.hasMatchingTag('Action', 'UpdateArweaveExplorer'),
+    function(msg)
+        print("UpdateArweaveExplorer handler called")
+        local url = msg.Tags["URL"]
+        if not url then
+            print("Error: Missing URL")
+            ao.send({
+                Target = msg.From,
+                Action = "Response",
+                Tags = { ["Action"] = "UpdateArweaveExplorer" },
+                Data = json.encode({ error = "Missing URL" })
+            })
+            return
+        end
+
+        -- Update the Arweave explorer
+        ArweaveExplorer = url
+
+        print("Arweave explorer updated: " .. url)
+        ao.send({
+            Target = msg.From,
+            Action = "Response",
+            Tags = { ["Action"] = "UpdateArweaveExplorer" },
+            Data = json.encode({ success = true, url = url })
+        })
+    end
+)
+
+-- Handler to get Arweave explorer
+Handlers.add('GetArweaveExplorer',
+    Handlers.utils.hasMatchingTag('Action', 'GetArweaveExplorer'),
+    function(msg)
+        print("GetArweaveExplorer handler called")
+        ao.send({
+            Target = msg.From,
+            Action = "Response",
+            Tags = { ["Action"] = "GetArweaveExplorer" },
+            Data = json.encode({ success = true, url = ArweaveExplorer })
         })
     end
 )

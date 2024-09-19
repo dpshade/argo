@@ -44,8 +44,6 @@ const checkAccess = async (link) => {
 };
 
 export const checkArNSRecord = async (domain) => {
-  console.log("Undername result");
-  console.log(await getUndername(domain));
   const cachedRecord = localStorage.getItem(`arnsRecord_${domain}`);
   if (cachedRecord) {
     const { exists, timestamp } = JSON.parse(cachedRecord);
@@ -147,18 +145,4 @@ export const resolveArNSDomain = async (domain) => {
     JSON.stringify({ url: null, timestamp: Date.now() }),
   );
   return null;
-};
-
-export const getUndername = async (domain) => {
-  try {
-    const record = await io.getArNSRecord({ name: domain });
-    if (record && record.processId) {
-      console.log(record);
-    }
-    console.log(`No undername found for domain: ${domain}`);
-    return null;
-  } catch (error) {
-    console.error(`Error getting undername for ${domain}:`, error);
-    return null;
-  }
 };
