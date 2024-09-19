@@ -1,24 +1,29 @@
 <script setup>
-import { ref, provide, nextTick, onMounted, watch } from "vue";
+import { ref, provide, nextTick, onMounted, watch, watchEffect } from "vue";
 import { useWallet } from "./composables/useWallet";
 import { useSearch } from "./composables/useSearch";
 import { useBangs } from "./composables/useBangs";
 import { useAppState } from "./composables/useAppState";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
+import { debounce } from "lodash";
 import SearchBar from "./components/SearchBar.vue";
 import BangEditor from "./components/BangEditor.vue";
 import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
+import { store } from "./store";
 
 const searchBarRef = ref(null);
 const bangEditorRef = ref(null);
 const isInitialized = ref(false);
+const isDataLoaded = ref(false);
 
 const {
     isWalletConnected,
+    isFullyConnected,
     walletAddress,
     walletConnection,
+    processId,
     connectWallet,
     disconnectWallet,
 } = useWallet();
@@ -32,7 +37,8 @@ const {
     updateExplorer,
     fetchAndLoadData,
     incrementEditViewCounter,
-} = useBangs();
+    resetState,
+} = useBangs(walletAddress, walletConnection, processId);
 
 const { searchResult, handleSearch } = useSearch();
 const {
@@ -45,7 +51,14 @@ const {
 } = useAppState();
 
 provide("isWalletConnected", isWalletConnected);
-provide("walletAddress", walletAddress);
+provide("wallet", {
+    isWalletConnected,
+    walletAddress,
+    walletConnection,
+    processId,
+    connectWallet,
+    disconnectWallet,
+});
 provide("isInitialized", isInitialized);
 provide("cachedBangsData", ref(null));
 
@@ -83,41 +96,56 @@ function toggleView() {
 
 async function onWalletConnected(address) {
     console.log("Wallet connected:", address);
-    await connectWallet(address);
-    // fetchAndLoadData will be called automatically due to the watch in useBangs
-    if (searchBarRef.value) {
-        searchBarRef.value.focusInput();
+    store.isLoading = true;
+    try {
+        await connectWallet(address);
+        if (searchBarRef.value) {
+            searchBarRef.value.focusInput();
+        }
+    } finally {
     }
 }
 
 async function onWalletDisconnected() {
     console.log("Wallet disconnected");
-    await disconnectWallet();
+    store.isLoading = true;
+    try {
+        await disconnectWallet();
+        resetState();
+        isDataLoaded.value = false;
+    } finally {
+        store.isLoading = false;
+    }
 }
+
+const debouncedFetchAndLoadData = debounce(async () => {
+    if (!isDataLoaded.value && isWalletConnected.value && processId.value) {
+        console.log("Fetching and loading data...");
+        store.isLoading = true;
+        try {
+            await fetchAndLoadData();
+            isDataLoaded.value = true;
+        } finally {
+            store.isLoading = false;
+        }
+    }
+}, 300);
 
 onMounted(async () => {
     await handleUrlParams();
     isInitialized.value = true;
 });
 
-watch(walletAddress, async (newAddress, oldAddress) => {
-    if (newAddress && newAddress !== oldAddress) {
-        // Use nextTick to ensure the wallet connection is fully established
-        await nextTick();
-        if (walletConnection.value && walletConnection.value.processId) {
-            await fetchAndLoadData(walletConnection.value);
-        } else {
-            console.warn(
-                "Wallet connected but process ID not set. Skipping data fetch.",
-            );
-        }
+watchEffect(() => {
+    if (isWalletConnected.value && processId.value) {
+        debouncedFetchAndLoadData();
     }
 });
 
-// Watch for changes in bangs, fallbackSearchEngine, and arweaveExplorer
-watch([bangs, fallbackSearchEngine, arweaveExplorer], () => {
-    // You can add any additional UI update logic here if needed
-    console.log("Data updated, UI should reflect changes");
+watch(isWalletConnected, (newValue) => {
+    if (!newValue) {
+        isDataLoaded.value = false;
+    }
 });
 </script>
 

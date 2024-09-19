@@ -218,9 +218,15 @@ export const ArweaveWalletConnection = {
 
   // Add this new method
   async uploadHandlers() {
+    if (this.handlersUploaded) {
+      console.log("Handlers already uploaded");
+      return;
+    }
+
     try {
       console.log("Uploading handlers...");
-      const response = await fetch("./ao/main.lua");
+
+      const response = await fetch(`./ao/main.lua`);
       const handlersCode = await response.text();
 
       const evalMessageId = await message({
@@ -240,6 +246,7 @@ export const ArweaveWalletConnection = {
         throw new Error(Error);
       } else {
         console.log("Handlers uploaded successfully");
+        this.handlersUploaded = true;
       }
     } catch (error) {
       console.error("Error uploading handlers:", error);
@@ -360,6 +367,7 @@ export const ArweaveWalletConnection = {
     this.signer = null;
     this.authMethod = null;
     this.processId = null;
+    this.handlersUploaded = false;
   },
 
   _checkWalletConnection() {

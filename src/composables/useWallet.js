@@ -1,13 +1,18 @@
 import { ref, onMounted, watch } from "vue";
 import { ArweaveWalletConnection as AWC } from "../helpers/arweaveWallet";
+import { store } from "../store";
 
-export function useWallet(fetchAndLoadDataCallback) {
+export function useWallet() {
   const isWalletConnected = ref(false);
   const walletAddress = ref(null);
   const walletConnection = ref(null);
+  const processId = ref(null);
+
+  const isFullyConnected = ref(false);
 
   async function connectWallet(address) {
     try {
+      store.isLoading = true;
       await AWC.checkAndAddUserProcess();
       console.log("User process ID:", AWC.processId);
 
@@ -17,22 +22,24 @@ export function useWallet(fetchAndLoadDataCallback) {
 
       walletAddress.value = address;
       walletConnection.value = AWC;
+      processId.value = AWC.processId;
       isWalletConnected.value = true;
-
-      // Fetch and load data after successful connection
-      if (fetchAndLoadDataCallback) {
-        await fetchAndLoadDataCallback(AWC);
-      }
+      isFullyConnected.value = true;
     } catch (error) {
       console.error("Error during wallet connection:", error);
-      disconnectWallet(); // Reset the wallet state if there's an error
+      disconnectWallet();
+    } finally {
+      store.isLoading = false;
     }
   }
 
   async function disconnectWallet() {
     walletAddress.value = null;
     walletConnection.value = null;
+    processId.value = null;
     isWalletConnected.value = false;
+    isFullyConnected.value = false;
+    await AWC.disconnect();
   }
 
   async function reconnectFromCache() {
@@ -40,11 +47,8 @@ export function useWallet(fetchAndLoadDataCallback) {
     if (reconnected) {
       walletAddress.value = AWC.address;
       walletConnection.value = AWC;
+      processId.value = AWC.processId;
       isWalletConnected.value = true;
-      // Fetch and load data after successful reconnection
-      if (fetchAndLoadDataCallback) {
-        await fetchAndLoadDataCallback(AWC);
-      }
       return true;
     }
     return false;
@@ -58,6 +62,7 @@ export function useWallet(fetchAndLoadDataCallback) {
     isWalletConnected,
     walletAddress,
     walletConnection,
+    processId,
     connectWallet,
     disconnectWallet,
     reconnectFromCache,

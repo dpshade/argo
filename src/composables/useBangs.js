@@ -1,4 +1,4 @@
-import { ref, watch } from "vue";
+import { ref, watch, inject } from "vue";
 import {
   getAllBangs,
   updateFallbackSearchEngine,
@@ -7,15 +7,13 @@ import {
   updateBang,
   deleteBang,
 } from "../helpers/bangHelpers";
-import { useWallet } from "./useWallet";
+import { store } from "../store";
 
-export function useBangs() {
+export function useBangs(walletAddress, walletConnection, processId) {
   const bangs = ref([]);
   const fallbackSearchEngine = ref("https://google.com/search?q=%s");
   const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
-  const { walletAddress, walletConnection } = useWallet();
-
-  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  const CACHE_DURATION = 5 * 60 * 1000;
   const editViewCounter = ref(0);
 
   function getCacheKey() {
@@ -27,6 +25,7 @@ export function useBangs() {
       console.warn(
         "Wallet not connected or process ID not set, skipping data fetch",
       );
+
       return;
     }
 
@@ -165,16 +164,11 @@ export function useBangs() {
   }
 
   // Watch for wallet address changes
-  watch(walletConnection, (newConnection) => {
-    if (newConnection) {
-      fetchAndLoadData();
-    } else {
-      // Clear current data when wallet disconnects
-      bangs.value = [];
-      fallbackSearchEngine.value = "https://google.com/search?q=%s";
-      arweaveExplorer.value = "https://viewblock.io/arweave/tx/%s";
-    }
-  });
+  function resetState() {
+    bangs.value = [];
+    fallbackSearchEngine.value = "https://google.com/search?q=%s";
+    arweaveExplorer.value = "https://viewblock.io/arweave/tx/%s";
+  }
 
   return {
     bangs,
@@ -185,5 +179,6 @@ export function useBangs() {
     updateFallback,
     updateExplorer,
     incrementEditViewCounter,
+    resetState,
   };
 }

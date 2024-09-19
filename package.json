@@ -19,6 +19,7 @@
     "assert": "^2.1.0",
     "browserify-zlib": "^0.2.0",
     "buffer": "^6.0.3",
+    "lodash": "^4.17.21",
     "quick-wallet": "^0.3.1",
     "rollup-plugin-node-builtins": "^2.1.2",
     "vite-plugin-node-polyfills": "^0.22.0",

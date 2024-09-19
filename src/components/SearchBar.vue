@@ -45,7 +45,7 @@ defineExpose({ focusInput });
     width: 100%;
     max-width: 600px;
     margin-bottom: 1rem;
-    margin-top: 20px;
+    margin-top: 15px;
 }
 
 .input-wrapper {

@@ -1,9 +1,9 @@
 import { ref } from "vue";
 import { handleSearch as performSearch } from "../helpers/searchLogic";
+import { store } from "../store";
 
 export function useSearch() {
   const searchResult = ref("");
-  const isLoading = ref(false);
 
   async function handleSearch(
     query,
@@ -12,7 +12,7 @@ export function useSearch() {
     fallbackSearchEngine,
     arweaveExplorer,
   ) {
-    isLoading.value = true;
+    store.isLoading = true;
     try {
       const result = await performSearch(
         query,
@@ -31,13 +31,12 @@ export function useSearch() {
       console.error("Error during search:", error);
       searchResult.value = "An error occurred during the search.";
     } finally {
-      isLoading.value = false;
+      store.isLoading = false;
     }
   }
 
   return {
     searchResult,
-    isLoading,
     handleSearch,
   };
 }
