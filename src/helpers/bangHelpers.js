@@ -1,26 +1,23 @@
-export const BANG_PROCESS_ID = "KdLdVvKmcmb3vqh9nVXH3IUVb8w3r5M_n8cdv67ZvmI";
-
 // Create: Add a new bang
 export async function createBang(walletConnection, name, url) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
   }
 
-  // Check if the URL starts with http:// or https://
-  if (!/^https?:\/\//i.test(url)) {
-    // If not, add https:// to the beginning
-    url = "https://" + url;
-  }
+  url = ensureHttpsWww(url);
 
-  return await walletConnection.sendMessageToArweave(
+  console.log(`Creating bang: ${name} with URL: ${url}`);
+  const result = await walletConnection.sendMessageToArweave(
     [
       { name: "Action", value: "CreateBang" },
       { name: "Name", value: name },
       { name: "URL", value: url },
     ],
     "",
-    BANG_PROCESS_ID,
+    walletConnection.processId,
   );
+  console.log("Create bang result:", result);
+  return result;
 }
 
 // Read: Get a specific bang by name
@@ -28,40 +25,66 @@ export async function getBang(walletConnection, name) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
   }
-  return await walletConnection.dryRunArweave(
+  console.log(`Getting bang: ${name}`);
+  const result = await walletConnection.dryRunArweave(
     [
       { name: "Action", value: "ReadBang" },
       { name: "Name", value: name },
     ],
     "",
-    BANG_PROCESS_ID,
+    walletConnection.processId,
   );
+  console.log("Get bang result:", result);
+  return result;
 }
 
 // Read: Get all bangs
-export async function getAllBangs(walletConnection) {
-  const cachedBangs = sessionStorage.getItem("cachedBangs");
-  if (cachedBangs) {
-    return JSON.parse(cachedBangs);
-  }
-
+export async function getAllBangs(walletConnection, dryRun = true) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
   }
 
-  const result = await walletConnection.dryRunArweave(
-    [{ name: "Action", value: "ListBangs" }],
-    "",
-    BANG_PROCESS_ID,
+  console.log(
+    dryRun
+      ? "Performing dry run of getAllBangs"
+      : "Getting all bangs and defaults",
   );
 
+  const action = dryRun ? "dryRunArweave" : "sendMessageToArweave";
+
+  const result = await walletConnection[action](
+    [{ name: "Action", value: "ListBangs" }],
+    "",
+    walletConnection.processId,
+  );
+
+  console.log("Get all bangs and defaults result:", result);
+
   if (result && result.Messages && result.Messages.length > 0) {
-    const bangsData = JSON.parse(result.Messages[0].Data);
-    sessionStorage.setItem("cachedBangs", JSON.stringify(bangsData));
-    return bangsData;
+    try {
+      const data = JSON.parse(result.Messages[0].Data);
+      if (data.success) {
+        return {
+          success: true,
+          Bangs: data.Bangs || [],
+          FallbackSearchEngine:
+            data.FallbackSearchEngine || "https://google.com/search?q=%s",
+          ArweaveExplorer:
+            data.ArweaveExplorer || "https://viewblock.io/arweave/tx/%s",
+        };
+      }
+    } catch (error) {
+      console.error("Error parsing bangs data:", error);
+    }
   }
 
-  return { success: false, Bangs: [] };
+  // Return default values if parsing fails or data is not in expected format
+  return {
+    success: false,
+    Bangs: [],
+    FallbackSearchEngine: "https://google.com/search?q=%s",
+    ArweaveExplorer: "https://viewblock.io/arweave/tx/%s",
+  };
 }
 
 // Update: Modify an existing bang
@@ -70,15 +93,10 @@ export async function updateBang(walletConnection, oldName, newName, url) {
     throw new Error("Wallet not connected");
   }
 
-  console.log(
-    `Attempting to update bang: ${oldName} to ${newName} with URL: ${url}`,
-  );
+  console.log(`Updating bang: ${oldName} to ${newName} with URL: ${url}`);
 
   // Check if the URL starts with http:// or https://
-  if (!/^https?:\/\//i.test(url)) {
-    // If not, add https:// to the beginning
-    url = "https://" + url;
-  }
+  url = ensureHttpsWww(url);
 
   try {
     const result = await walletConnection.sendMessageToArweave(
@@ -89,7 +107,7 @@ export async function updateBang(walletConnection, oldName, newName, url) {
         { name: "URL", value: url },
       ],
       "",
-      BANG_PROCESS_ID,
+      walletConnection.processId,
     );
 
     console.log("Update bang result:", result);
@@ -110,14 +128,42 @@ export async function deleteBang(walletConnection, name) {
   if (!walletConnection) {
     throw new Error("Wallet not connected");
   }
-  return await walletConnection.sendMessageToArweave(
+  console.log(`Deleting bang: ${name}`);
+  const result = await walletConnection.sendMessageToArweave(
     [
       { name: "Action", value: "DeleteBang" },
       { name: "Name", value: name },
     ],
     "",
-    BANG_PROCESS_ID,
+    walletConnection.processId,
   );
+  console.log("Delete bang result:", result);
+
+  // Clean up cached redirects
+  cleanupCachedRedirects(name);
+
+  return result;
+}
+
+function cleanupCachedRedirects(bangName) {
+  // Clean up session storage
+  let sessionCachedRedirects = JSON.parse(
+    sessionStorage.getItem("cachedRedirects") || "{}",
+  );
+  delete sessionCachedRedirects[bangName];
+  sessionStorage.setItem(
+    "cachedRedirects",
+    JSON.stringify(sessionCachedRedirects),
+  );
+
+  // Clean up local storage
+  let localCachedRedirects = JSON.parse(
+    localStorage.getItem("cachedRedirects") || "{}",
+  );
+  delete localCachedRedirects[bangName];
+  localStorage.setItem("cachedRedirects", JSON.stringify(localCachedRedirects));
+
+  console.log(`Cleaned up cached redirects for bang: ${bangName}`);
 }
 
 export async function updateFallbackSearchEngine(walletConnection, url) {
@@ -137,36 +183,8 @@ export async function updateFallbackSearchEngine(walletConnection, url) {
       { name: "URL", value: url },
     ],
     "",
-    BANG_PROCESS_ID,
+    walletConnection.processId,
   );
-}
-
-export async function getFallbackSearchEngine(walletConnection) {
-  const cachedFallback = sessionStorage.getItem("cachedFallbackSearchEngine");
-  if (cachedFallback) {
-    return JSON.parse(cachedFallback);
-  }
-
-  if (!walletConnection) {
-    throw new Error("Wallet not connected");
-  }
-
-  const result = await walletConnection.dryRunArweave(
-    [{ name: "Action", value: "GetFallbackSearchEngine" }],
-    "",
-    BANG_PROCESS_ID,
-  );
-
-  if (result && result.Messages && result.Messages.length > 0) {
-    const fallbackData = JSON.parse(result.Messages[0].Data);
-    sessionStorage.setItem(
-      "cachedFallbackSearchEngine",
-      JSON.stringify(fallbackData),
-    );
-    return fallbackData;
-  }
-
-  return { success: false, url: "https://google.com/search?q=%s" };
 }
 
 export async function updateArweaveExplorer(walletConnection, url) {
@@ -186,34 +204,15 @@ export async function updateArweaveExplorer(walletConnection, url) {
       { name: "URL", value: url },
     ],
     "",
-    BANG_PROCESS_ID,
+    walletConnection.processId,
   );
 }
 
-export async function getArweaveExplorer(walletConnection) {
-  const cachedExplorer = sessionStorage.getItem("cachedArweaveExplorer");
-  if (cachedExplorer) {
-    return JSON.parse(cachedExplorer);
+function ensureHttpsWww(url) {
+  if (!/^https?:\/\//i.test(url)) {
+    url = "https://www." + url;
+  } else if (!/^https?:\/\/www\./i.test(url)) {
+    url = url.replace(/^(https?:\/\/)/, "$1www.");
   }
-
-  if (!walletConnection) {
-    throw new Error("Wallet not connected");
-  }
-
-  const result = await walletConnection.dryRunArweave(
-    [{ name: "Action", value: "GetArweaveExplorer" }],
-    "",
-    BANG_PROCESS_ID,
-  );
-
-  if (result && result.Messages && result.Messages.length > 0) {
-    const explorerData = JSON.parse(result.Messages[0].Data);
-    sessionStorage.setItem(
-      "cachedArweaveExplorer",
-      JSON.stringify(explorerData),
-    );
-    return explorerData;
-  }
-
-  return { success: false, url: "https://viewblock.io/arweave/tx/%s" };
+  return url;
 }

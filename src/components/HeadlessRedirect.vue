@@ -6,10 +6,7 @@
 import { onMounted } from "vue";
 import { handleSearch } from "../helpers/searchLogic.js";
 import { ArweaveWalletConnection as AWC } from "../helpers/arweaveWallet.js";
-import {
-    getAllBangs,
-    getFallbackSearchEngine,
-} from "../helpers/bangHelpers.js";
+import { getAllBangs } from "../helpers/bangHelpers.js";
 
 const CACHE_DURATION = 1000 * 60 * 5;
 
@@ -39,47 +36,18 @@ onMounted(async () => {
 
             let bangs = [];
             let fallbackSearchEngine = "https://google.com/search?q=%s";
+            let arweaveExplorer = "https://viewblock.io/arweave/tx/%s";
 
             if (reconnected) {
-                // Fetch bangs and fallback search engine in parallel
-                const [bangsResult, fallbackResult] = await Promise.all([
-                    getAllBangs(AWC),
-                    getFallbackSearchEngine(AWC),
-                ]);
+                const result = await getAllBangs(AWC);
 
-                if (
-                    bangsResult &&
-                    bangsResult.Messages &&
-                    bangsResult.Messages.length > 0
-                ) {
-                    const bangsData = JSON.parse(bangsResult.Messages[0].Data);
-                    if (bangsData.success && Array.isArray(bangsData.Bangs)) {
-                        bangs = bangsData.Bangs;
-                        setCachedData("bangs", bangs);
-                    }
-                } else {
-                    bangs = getCachedData("bangs") || [];
-                }
-
-                if (
-                    fallbackResult &&
-                    fallbackResult.Messages &&
-                    fallbackResult.Messages.length > 0
-                ) {
-                    const fallbackData = JSON.parse(
-                        fallbackResult.Messages[0].Data,
-                    );
-                    if (fallbackData.success && fallbackData.url) {
-                        fallbackSearchEngine = fallbackData.url;
-                        setCachedData(
-                            "fallbackSearchEngine",
-                            fallbackSearchEngine,
-                        );
-                    }
-                } else {
-                    fallbackSearchEngine =
-                        getCachedData("fallbackSearchEngine") ||
-                        fallbackSearchEngine;
+                if (result.success) {
+                    bangs = result.Bangs;
+                    fallbackSearchEngine = result.FallbackSearchEngine;
+                    arweaveExplorer = result.ArweaveExplorer;
+                    setCachedData("bangs", bangs);
+                    setCachedData("fallbackSearchEngine", fallbackSearchEngine);
+                    setCachedData("arweaveExplorer", arweaveExplorer);
                 }
             } else {
                 // If reconnection failed, use cached data
@@ -87,6 +55,8 @@ onMounted(async () => {
                 fallbackSearchEngine =
                     getCachedData("fallbackSearchEngine") ||
                     fallbackSearchEngine;
+                arweaveExplorer =
+                    getCachedData("arweaveExplorer") || arweaveExplorer;
             }
 
             // Perform search
@@ -95,6 +65,7 @@ onMounted(async () => {
                 bangs,
                 AWC,
                 fallbackSearchEngine,
+                arweaveExplorer,
             );
             if (result.startsWith("Redirecting to:")) {
                 const url = result.split(": ")[1];

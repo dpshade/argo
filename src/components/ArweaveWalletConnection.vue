@@ -3,6 +3,10 @@ import { ref, computed, onMounted } from "vue";
 import { ArweaveWalletConnection as AWC } from "../helpers/arweaveWallet";
 import { store } from "../store";
 
+const walletAddress = ref(null);
+const showModal = ref(false);
+const isConnecting = ref(false);
+
 export default {
     name: "ArweaveWalletConnection",
     emits: ["walletConnected", "walletDisconnected"],
@@ -102,8 +106,7 @@ export default {
             try {
                 const address = await AWC.connect(method);
                 walletAddress.value = address;
-                store.walletConnection = AWC;
-                emit("walletConnected", address);
+                emit("walletConnected", address); // Emit the event here
             } catch (error) {
                 console.error("Wallet connection failed:", error);
                 alert("Failed to connect wallet. Please try again.");
@@ -116,8 +119,7 @@ export default {
             try {
                 await AWC.disconnect();
                 walletAddress.value = null;
-                store.walletConnection = null;
-                emit("walletDisconnected");
+                emit("walletDisconnected"); // Emit the event here
             } catch (error) {
                 console.error("Wallet disconnection failed:", error);
                 alert("Failed to disconnect wallet. Please try again.");
@@ -367,5 +369,50 @@ h2 {
     color: #427817;
     font-size: 14px;
     font-family: "PPNeueBit", monospace;
+}
+
+@media screen and (max-width: 768px) {
+    .modal-content {
+        width: 90%;
+        max-width: none;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .connect-options {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    .connect-option {
+        flex-direction: row;
+        align-items: center;
+        padding: 15px 10px;
+    }
+
+    .connect-option-icon {
+        flex: 0 0 40px;
+        height: 40px;
+        margin-right: 15px;
+    }
+
+    .connect-option-detail {
+        flex: 1;
+    }
+
+    .connect-option-name {
+        font-size: 16px;
+    }
+
+    .connect-option-desc {
+        font-size: 12px;
+    }
+
+    .connect-button {
+        width: 100%;
+        max-width: 200px;
+        margin: 0 auto;
+        display: block;
+    }
 }
 </style>

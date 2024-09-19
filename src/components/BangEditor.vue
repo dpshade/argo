@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, nextTick } from "vue";
+import { ref, computed, watch, inject } from "vue";
 import {
     createBang,
     updateBang,
@@ -7,219 +7,187 @@ import {
     updateFallbackSearchEngine,
     updateArweaveExplorer,
 } from "../helpers/bangHelpers.js";
-import { ArweaveWalletConnection } from "../helpers/arweaveWallet";
 
-const props = defineProps({
-    bangs: {
-        type: Array,
-        default: () => [],
-    },
-    fallbackSearchEngine: {
-        type: String,
-        default: "",
-    },
-    arweaveExplorer: {
-        type: String,
-        default: "",
-    },
-    walletConnection: {
-        type: Object,
-        required: true,
-    },
+const HARDCODED_DEFAULTS = {
+    fallbackSearchEngine: "https://duckduckgo.com/?q=%s",
+    arweaveExplorer: "https://viewblock.io/arweave/tx/",
+};
+
+const props = defineProps([
+    "bangs",
+    "fallbackSearchEngine",
+    "arweaveExplorer",
+    "walletConnection",
+]);
+const emit = defineEmits([
+    "update:bangs",
+    "update:fallbackSearchEngine",
+    "update:arweaveExplorer",
+    "force-update",
+]);
+
+const cachedBangsData = inject("cachedBangsData");
+const bangs = ref([]);
+const newBang = ref({ name: "", url: "" });
+const defaults = ref({
+    fallbackSearchEngine:
+        props.fallbackSearchEngine || HARDCODED_DEFAULTS.fallbackSearchEngine,
+    arweaveExplorer:
+        props.arweaveExplorer || HARDCODED_DEFAULTS.arweaveExplorer,
 });
 
-const emit = defineEmits(["update:bangs", "force-update"]);
-
-const localBangs = ref([]);
-const fallbackSearchEngine = ref("");
-const localArweaveExplorer = ref("");
-const newBangName = ref("");
-const newBangUrl = ref("");
-const showFallbackSuccess = ref(false);
-const showArweaveExplorerSuccess = ref(false);
+const sortedBangs = computed(() =>
+    [...bangs.value].sort((a, b) => a.name.localeCompare(b.name)),
+);
 
 watch(
     () => props.bangs,
     (newBangs) => {
-        localBangs.value = JSON.parse(JSON.stringify(newBangs));
+        bangs.value = newBangs.map((bang) => ({ ...bang, editing: false }));
     },
     { immediate: true },
 );
 
 watch(
     () => props.fallbackSearchEngine,
-    (newFallback) => {
-        fallbackSearchEngine.value = newFallback;
+    (newValue) => {
+        defaults.value.fallbackSearchEngine =
+            newValue || HARDCODED_DEFAULTS.fallbackSearchEngine;
     },
-    { immediate: true },
 );
 
 watch(
     () => props.arweaveExplorer,
-    (newExplorer) => {
-        localArweaveExplorer.value = newExplorer;
+    (newValue) => {
+        defaults.value.arweaveExplorer =
+            newValue || HARDCODED_DEFAULTS.arweaveExplorer;
     },
-    { immediate: true },
 );
 
-async function addNewBang() {
-    if (newBangName.value && newBangUrl.value) {
+function formatUrl(url) {
+    return url.replace(/^https?:\/\/(www\.)?/, "");
+}
+
+async function addBang() {
+    if (newBang.value.name && newBang.value.url) {
         try {
-            await createBang(
-                ArweaveWalletConnection,
-                newBangName.value,
-                newBangUrl.value,
+            const result = await createBang(
+                props.walletConnection,
+                newBang.value.name,
+                newBang.value.url,
             );
-            newBangName.value = "";
-            newBangUrl.value = "";
-            emit("force-update");
+            if (result && !result.Error) {
+                bangs.value.push({ ...newBang.value, editing: false });
+                updateCachedBangs();
+                newBang.value = { name: "", url: "" };
+                emit("update:bangs", bangs.value);
+                emit("force-update");
+            } else {
+                throw new Error(result.Error || "Unknown error");
+            }
         } catch (error) {
             console.error("Error adding bang:", error);
+            alert(`Failed to add bang: ${error.message}`);
         }
     }
 }
 
-async function saveBang(index) {
-    const bang = localBangs.value[index];
+async function saveBang(bang) {
     try {
-        console.log(
-            `Saving bang: ${bang.name} to ${bang.editName} with URL: ${bang.editUrl}`,
-        );
         const result = await updateBang(
-            ArweaveWalletConnection,
+            props.walletConnection,
             bang.name,
             bang.editName,
             bang.editUrl,
         );
-        console.log("Save bang result:", result);
+        if (result.Error) throw new Error(result.Error);
 
-        if (result.Error) {
-            throw new Error(result.Error);
-        }
-
-        bang.name = bang.editName;
-        bang.url = bang.editUrl;
-        bang.editing = false;
+        Object.assign(bang, {
+            name: bang.editName,
+            url: bang.editUrl,
+            editing: false,
+        });
         delete bang.editName;
         delete bang.editUrl;
+
+        updateCachedBangs();
+        emit("update:bangs", bangs.value);
         emit("force-update");
     } catch (error) {
         console.error("Error saving bang:", error);
         alert(`Failed to save bang: ${error.message}`);
+        cancelEdit(bang);
     }
 }
 
-async function removeBang(index) {
-    const bang = localBangs.value[index];
+async function removeBang(bang) {
     try {
-        await deleteBang(ArweaveWalletConnection, bang.name);
+        await deleteBang(props.walletConnection, bang.name);
+        bangs.value = bangs.value.filter((b) => b.name !== bang.name);
+        updateCachedBangs();
+        emit("update:bangs", bangs.value);
         emit("force-update");
     } catch (error) {
         console.error("Error deleting bang:", error);
+        alert(`Failed to delete bang: ${error.message}`);
     }
 }
 
-function updateBangs() {
-    emit("update:bangs", JSON.parse(JSON.stringify(localBangs.value)));
-}
-
-const newBangNameInput = ref(null);
-
-function focusNewBangInput() {
-    if (newBangNameInput.value) {
-        newBangNameInput.value.focus();
-    }
-}
-
-function getClickPosition(element, x) {
-    const rect = element.getBoundingClientRect();
-    const leftPadding = parseInt(getComputedStyle(element).paddingLeft, 10);
-    return Math.round((x - rect.left - leftPadding) / 7); // Assuming average char width of 7px
-}
-
-function editBang(index, field, event) {
-    const bang = localBangs.value[index];
+function editBang(bang) {
     bang.editing = true;
     bang.editName = bang.name;
     bang.editUrl = bang.url;
-
-    nextTick(() => {
-        const inputElement = document.getElementById(`bang-${field}-${index}`);
-        if (inputElement) {
-            inputElement.focus();
-            const clickPosition = getClickPosition(event.target, event.clientX);
-            inputElement.setSelectionRange(clickPosition, clickPosition);
-        }
-    });
 }
 
-function cancelEdit(index) {
-    const bang = localBangs.value[index];
+function cancelEdit(bang) {
     bang.editing = false;
     delete bang.editName;
     delete bang.editUrl;
 }
 
-async function saveFallbackSearchEngine() {
+async function saveDefault(key) {
     try {
-        await updateFallbackSearchEngine(
-            ArweaveWalletConnection,
-            fallbackSearchEngine.value,
-        );
-        showFallbackSuccess.value = true;
-        setTimeout(() => {
-            showFallbackSuccess.value = false;
-        }, 3000);
+        const updateFunction =
+            key === "fallbackSearchEngine"
+                ? updateFallbackSearchEngine
+                : updateArweaveExplorer;
+        await updateFunction(props.walletConnection, defaults.value[key]);
+        emit(`update:${key}`, defaults.value[key]);
         emit("force-update");
     } catch (error) {
-        console.error("Error updating fallback search engine:", error);
-        alert(`Failed to update fallback search engine: ${error.message}`);
+        console.error(`Error updating ${key}:`, error);
+        alert(`Failed to update ${key}: ${error.message}`);
     }
 }
 
-async function saveArweaveExplorer() {
-    try {
-        await updateArweaveExplorer(
-            props.walletConnection,
-            localArweaveExplorer.value,
-        );
-        showArweaveExplorerSuccess.value = true;
-        setTimeout(() => {
-            showArweaveExplorerSuccess.value = false;
-        }, 3000);
-        emit("update:arweaveExplorer", localArweaveExplorer.value);
-    } catch (error) {
-        console.error("Error updating Arweave explorer:", error);
-        alert(`Failed to update Arweave explorer: ${error.message}`);
+function updateCachedBangs() {
+    if (cachedBangsData.value) {
+        cachedBangsData.value.Bangs = bangs.value.map(({ name, url }) => ({
+            name,
+            url,
+        }));
     }
 }
-
-defineExpose({ focusNewBangInput });
 </script>
-
 <template>
     <div class="bang-editor">
         <h2>Edit Bangs</h2>
         <ul class="bang-list">
             <li
-                v-for="(bang, index) in localBangs"
-                :key="index"
+                v-for="bang in sortedBangs"
+                :key="bang.name"
                 :class="{ editing: bang.editing }"
             >
                 <template v-if="!bang.editing">
-                    <span
-                        class="bang-name"
-                        @click="(e) => editBang(index, 'name', e)"
-                        >{{ bang.name }}</span
-                    >
-                    <span
-                        class="bang-url"
-                        @click="(e) => editBang(index, 'url', e)"
-                        >{{ bang.url }}</span
-                    >
+                    <span class="bang-name" @click="editBang(bang)">{{
+                        bang.name
+                    }}</span>
+                    <span class="bang-url" @click="editBang(bang)">{{
+                        formatUrl(bang.url)
+                    }}</span>
                     <div class="bang-actions">
                         <button
-                            @click="(e) => editBang(index, 'name', e)"
+                            @click="editBang(bang)"
                             class="icon-button edit-button"
                         >
                             <svg
@@ -235,7 +203,7 @@ defineExpose({ focusNewBangInput });
                             </svg>
                         </button>
                         <button
-                            @click="removeBang(index)"
+                            @click="removeBang(bang)"
                             class="icon-button delete-button"
                         >
                             <svg
@@ -254,24 +222,22 @@ defineExpose({ focusNewBangInput });
                 </template>
                 <template v-else>
                     <input
-                        :id="`bang-name-${index}`"
                         v-model="bang.editName"
                         placeholder="Bang name"
                         class="bang-name-edit"
                         required
-                        @keyup.enter="saveBang(index)"
+                        @keyup.enter="saveBang(bang)"
                     />
                     <input
-                        :id="`bang-url-${index}`"
                         v-model="bang.editUrl"
                         placeholder="URL"
                         class="bang-url-edit"
                         required
-                        @keyup.enter="saveBang(index)"
+                        @keyup.enter="saveBang(bang)"
                     />
                     <div class="bang-actions">
                         <button
-                            @click="saveBang(index)"
+                            @click="saveBang(bang)"
                             class="icon-button save-button"
                         >
                             <svg
@@ -287,7 +253,7 @@ defineExpose({ focusNewBangInput });
                             </svg>
                         </button>
                         <button
-                            @click="cancelEdit(index)"
+                            @click="cancelEdit(bang)"
                             class="icon-button cancel-button"
                         >
                             <svg
@@ -306,90 +272,35 @@ defineExpose({ focusNewBangInput });
                 </template>
             </li>
         </ul>
-        <form @submit.prevent="addNewBang" class="add-bang-form">
+        <form @submit.prevent="addBang" class="add-bang-form">
+            <input v-model="newBang.name" placeholder="Bang name" required />
             <input
-                v-model="newBangName"
-                placeholder="Bang name"
-                required
-                ref="newBangNameInput"
-            />
-            <input
-                v-model="newBangUrl"
+                v-model="newBang.url"
                 placeholder="URL (use %s for query)"
                 required
             />
             <button type="submit">Add Bang</button>
         </form>
-        <h2>Defaults</h2>
-        <div class="fallback-search-engine">
-            <form
-                @submit.prevent="saveFallbackSearchEngine"
-                class="fallback-form"
-            >
-                <input
-                    v-model="fallbackSearchEngine"
-                    placeholder="Enter fallback search URL (use %s for query)"
-                    required
-                />
-                <button type="submit">Save</button>
-                <span v-if="showFallbackSuccess" class="success-checkmark"
-                    >✓</span
-                >
-            </form>
-        </div>
-        <div class="arweave-explorer">
-            <form
-                @submit.prevent="saveArweaveExplorer"
-                class="arweave-explorer-form"
-            >
-                <input
-                    v-model="localArweaveExplorer"
-                    placeholder="Enter Arweave explorer URL (use %s for TxID)"
-                    required
-                />
-                <button type="submit">Save</button>
-                <span
-                    v-if="showArweaveExplorerSuccess"
-                    class="success-checkmark"
-                    >✓</span
-                >
-            </form>
-        </div>
+        <div class="divider"></div>
+        <ul class="defaults-list">
+            <li v-for="(value, key) in defaults" :key="key">
+                <span class="default-name">{{
+                    key === "fallbackSearchEngine" ? "Search" : "Arweave"
+                }}</span>
+                <form @submit.prevent="saveDefault(key)" class="default-form">
+                    <input
+                        :value="formatUrl(value)"
+                        @input="defaults[key] = $event.target.value"
+                        :placeholder="`Enter ${key} URL`"
+                        required
+                    />
+                    <button type="submit">Save</button>
+                </form>
+            </li>
+        </ul>
     </div>
 </template>
-
 <style scoped>
-.loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 9999;
-    backdrop-filter: blur(15px);
-}
-
-.loading-spinner {
-    width: 50px;
-    height: 50px;
-    border: 3px solid #ffffff;
-    border-top: 3px solid var(--button-bg);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
-}
 .bang-editor {
     background-color: var(--container-bg);
     padding: 0 20px;
@@ -398,42 +309,52 @@ defineExpose({ focusNewBangInput });
 h2 {
     color: var(--header-text-color);
     margin-bottom: 20px;
+    margin-top: 0;
 }
 
 .bang-list {
     list-style-type: none;
     padding: 0;
     margin-bottom: 20px;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
 }
 
 .bang-list li {
     background-color: var(--input-bg);
-    margin-bottom: 10px;
     padding: 10px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-radius: 5px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.bang-list li:last-child {
+    border-bottom: none;
+}
+
+.bang-list li.editing {
+    background-color: var(--input-bg);
+}
+
+.bang-name,
+.bang-url {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .bang-name {
     font-weight: bold;
     color: var(--header-text-color);
     width: 20%;
+    margin-right: 10px;
 }
-
-/* .bang-name,
-.bang-url {
-} */
-
-/* .bang-name:hover,
-.bang-url:hover {
-    text-decoration: underline;
-} */
 
 .bang-url {
     color: var(--text-color);
-    word-break: break-all;
     width: 60%;
     font-size: 12px;
     font-style: italic;
@@ -442,6 +363,15 @@ h2 {
 .bang-actions {
     display: flex;
     gap: 5px;
+    flex-shrink: 0;
+}
+
+.bang-name-edit,
+.bang-url-edit {
+    padding: 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    color: var(--text-color);
 }
 
 .bang-name-edit {
@@ -472,20 +402,41 @@ h2 {
     transition: fill 0.3s;
 }
 
-.icon-button:hover .edit-button svg {
-    background-color: var(--button-hover-bg);
-    fill: white;
+.icon-button:hover svg {
+    fill: var(--button-hover-bg);
 }
 
-.delete-button:hover {
-    background-color: red;
-    fill: white;
+.save-button {
+    transition: all 0.3s ease;
 }
 
-.add-bang-form {
+.save-button.submitting {
+    animation: pulse 1s infinite;
+}
+
+.save-button.success {
+    background-color: #4caf50;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.add-bang-form,
+.fallback-form,
+.arweave-explorer-form {
     display: grid;
     grid-template-columns: 1fr 2fr auto;
     gap: 10px;
+    margin-bottom: 20px;
 }
 
 input {
@@ -499,8 +450,7 @@ input {
 input:focus {
     outline: none;
     box-shadow: none;
-    background-color: var(--input-focus-bg);
-    border-radius: 5px;
+    background-color: var(--input-bg);
 }
 
 button {
@@ -509,113 +459,251 @@ button {
     color: white;
     border: none;
     cursor: pointer;
-    transition: background-color 0.3s;
+    transition: all 0.3s ease;
+    border-radius: 5px;
 }
 
 button:hover {
     background-color: var(--button-hover-bg);
 }
 
-.fallback-search-engine {
-    margin-top: 20px;
+.button-pulsing {
+    animation: lightPulse 1s infinite;
 }
 
-.fallback-search-engine h3 {
-    color: var(--header-text-color);
-    margin-bottom: 20px;
+.button-saved {
+    animation: heavyPulse 0.3s ease;
 }
 
-.fallback-form {
-    display: flex;
-    width: 100%;
-    align-items: center;
-}
-
-.fallback-form input {
-    flex-grow: 1;
-    padding: 10px;
-    border: none;
-    border-radius: 5px 0 0 5px;
-    background-color: var(--input-bg);
-    color: var(--text-color);
-}
-
-.fallback-form input:focus {
-    outline: none;
-    background-color: var(--input-focus-bg);
-}
-
-.fallback-form button {
-    padding: 10px 20px;
-    background-color: var(--button-bg);
-    color: white;
-    border: none;
-    border-radius: 0 5px 5px 0;
-    cursor: pointer;
-    transition: background-color 0.3s;
-}
-
-.fallback-form button:hover {
-    background-color: var(--button-hover-bg);
-}
-
-.arweave-explorer {
-    margin-top: 10px;
-}
-
-.arweave-explorer h3 {
-    color: var(--header-text-color);
-    margin-bottom: 20px;
-}
-
-.arweave-explorer-form {
-    display: flex;
-    width: 100%;
-    align-items: center;
-}
-
-.arweave-explorer-form input {
-    flex-grow: 1;
-    padding: 10px;
-    border: none;
-    border-radius: 5px 0 0 5px;
-    background-color: var(--input-bg);
-    color: var(--text-color);
-}
-
-.arweave-explorer-form input:focus {
-    outline: none;
-    background-color: var(--input-focus-bg);
-}
-
-.arweave-explorer-form button {
-    padding: 10px 20px;
-    background-color: var(--button-bg);
-    color: white;
-    border: none;
-    border-radius: 0 5px 5px 0;
-    cursor: pointer;
-    transition: background-color 0.3s;
-}
-
-.arweave-explorer-form button:hover {
-    background-color: var(--button-hover-bg);
-}
-
-.success-checkmark {
-    color: #4caf50;
-    font-size: 24px;
-    margin-left: 10px;
-    animation: fadeInOut 3s ease-in-out;
-}
-
-@keyframes fadeInOut {
+@keyframes lightPulse {
     0%,
     100% {
-        opacity: 0;
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(var(--button-bg-rgb), 0);
     }
     50% {
-        opacity: 1;
+        transform: scale(1.02);
+        box-shadow: 0 0 10px rgba(var(--button-bg-rgb), 0.2);
+    }
+}
+
+@keyframes heavyPulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(var(--button-bg-rgb), 0);
+    }
+    50% {
+        transform: scale(0.95);
+        box-shadow: 0 0 15px rgba(var(--button-bg-rgb), 0.4);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(var(--button-bg-rgb), 0);
+    }
+}
+
+.divider {
+    height: 1px;
+    background-color: var(--border-color);
+    margin: 20px 0;
+}
+
+.defaults-list {
+    list-style-type: none;
+    padding: 0;
+    margin-bottom: 20px;
+}
+
+.defaults-list li {
+    margin-bottom: 10px;
+}
+
+.default-name {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: var(--placeholder-color);
+    font-style: italic;
+}
+
+.default-form {
+    display: flex;
+    width: 100%;
+}
+
+.default-form input {
+    flex-grow: 1;
+    padding: 0.5rem 1rem;
+    font-size: 14px;
+    font-style: italic;
+    border: none;
+    border-radius: 5px 0 0 5px;
+    background-color: var(--input-bg);
+    color: var(--text-color);
+}
+
+.default-form input:focus {
+    outline: none;
+    background-color: var(--input-focus-bg);
+}
+
+.default-form button {
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    background-color: var(--button-bg);
+    color: white;
+    border: none;
+    border-radius: 0 5px 5px 0;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.default-form button:hover {
+    background-color: var(--button-hover-bg);
+}
+
+.default-form button {
+    transition: all 0.3s ease;
+}
+
+.default-form button.submitting {
+    animation: pulse 1s infinite;
+}
+
+.default-form button.success {
+    background-color: #4caf50;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+@media screen and (max-width: 768px) {
+    .bang-editor {
+        padding: 15px;
+    }
+
+    .bang-list {
+        max-height: none;
+    }
+
+    .bang-list li {
+        flex-direction: row;
+        align-items: center;
+        padding: 12px 15px;
+        position: relative;
+    }
+
+    .bang-name,
+    .bang-url {
+        font-size: 16px;
+        line-height: 1.2;
+    }
+
+    .bang-name {
+        width: 25%;
+        margin-right: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .bang-url {
+        width: calc(75% - 50px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .bang-actions {
+        position: absolute;
+        right: 15px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
+    .edit-button {
+        display: none;
+    }
+
+    .delete-button svg {
+        width: 28px;
+        height: 28px;
+    }
+
+    .add-bang-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+    .add-bang-form input,
+    .add-bang-form button {
+        width: 100%;
+        font-size: 16px;
+        padding: 12px;
+    }
+
+    .defaults-list li {
+        margin-bottom: 15px;
+    }
+
+    .default-name {
+        font-size: 16px;
+        margin-bottom: 8px;
+    }
+
+    .default-form {
+        flex-direction: column;
+    }
+
+    .default-form input,
+    .default-form button {
+        width: 100%;
+        font-size: 16px;
+        padding: 12px;
+        border-radius: 5px;
+    }
+
+    .default-form button {
+        margin-top: 8px;
+    }
+
+    /* Styles for editing mode */
+    .bang-list li.editing {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .bang-name-edit,
+    .bang-url-edit {
+        width: 100%;
+        margin-right: 0;
+        margin-bottom: 8px;
+        font-size: 16px;
+        padding: 12px;
+    }
+
+    .bang-list li.editing .bang-actions {
+        position: static;
+        transform: none;
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 8px;
+    }
+
+    .bang-list li.editing .icon-button svg {
+        width: 28px;
+        height: 28px;
     }
 }
 </style>

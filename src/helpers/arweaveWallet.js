@@ -9,54 +9,318 @@ import {
   spawn,
 } from "@permaweb/aoconnect";
 
-const BANG_PROCESS_ID = "KdLdVvKmcmb3vqh9nVXH3IUVb8w3r5M_n8cdv67ZvmI";
 const USER_PROCESS_MAP_ID = "fZnoaLqIP1zk3C1AZ9s546MmOdE-ujjOaGtMzj431cw";
 const USER_PROCESS_MODULE = "ffvkmPM1jW71hFlBpVbaIapBa_Wl6UIwfdTkDNqsKNw";
 const SCHEDULER_ID = "_GQ33BkPtZrqxA84vM8Zk-N2aO0toNNu_C-l-rawrBA";
 
 export const ArweaveWalletConnection = {
+  // State
   address: null,
   connection: null,
   signer: null,
   authMethod: null,
-  BANG_PROCESS_ID,
+  processId: null,
 
+  // Core Functions
   async connect(method) {
     try {
       await this._connectWithMethod(method);
-
       if (this.address) {
-        console.log(`Wallet connected successfully: ${this.address}`);
-        console.log("Auth method:", this.authMethod);
-
         this._createSigner();
         this._cacheWalletInfo();
-
         await this.checkAndAddUserProcess();
-      } else {
-        console.error("Failed to obtain wallet address");
+        return this.address;
       }
-
-      return this.address;
+      throw new Error("Failed to obtain wallet address");
     } catch (error) {
       console.error("Wallet connection failed:", error);
       throw error;
     }
   },
 
+  async disconnect() {
+    try {
+      await this._disconnectWallet();
+      this._clearCache();
+      this._resetState();
+      console.log("Wallet disconnected successfully");
+    } catch (error) {
+      console.error("Error disconnecting wallet:", error);
+      throw error;
+    }
+  },
+
+  async reconnectFromCache() {
+    const cachedMethod = sessionStorage.getItem("cachedWalletMethod");
+    const cachedAddress = sessionStorage.getItem("cachedWalletAddress");
+
+    if (cachedMethod && cachedAddress) {
+      try {
+        await this._connectWithMethod(cachedMethod);
+        if (this.address === cachedAddress) {
+          this._createSigner();
+          return true;
+        }
+        this._clearCache();
+      } catch (error) {
+        console.error("Failed to reconnect from cache:", error);
+        this._clearCache();
+      }
+    }
+    return false;
+  },
+
+  // Arweave Interaction
+  async sendMessageToArweave(tags, data = "", processId = this.processId) {
+    this._checkWalletConnection();
+    if (!processId) {
+      throw new Error(
+        "Process ID not set. Please ensure the user process is created.",
+      );
+    }
+    const safeTags = this._ensureSafeTags(tags);
+    const safeData = this._ensureSafeData(data);
+
+    try {
+      const messageId = await message({
+        process: processId,
+        tags: safeTags,
+        signer: this.signer,
+        data: safeData,
+      });
+
+      const { Messages, Error } = await result({
+        process: processId,
+        message: messageId,
+      });
+
+      if (Error) throw new Error(Error);
+      return { Messages, Error };
+    } catch (error) {
+      console.error("Error in sendMessageToArweave:", error);
+      throw error;
+    }
+  },
+
+  async dryRunArweave(tags, data = "", processId = this.processId) {
+    this._checkWalletConnection();
+    try {
+      const { Messages, Error } = await dryrun({
+        process: processId,
+        tags,
+        data,
+        signer: this.signer,
+      });
+
+      if (Error) throw new Error(Error);
+      return { Messages, Error };
+    } catch (error) {
+      console.error("Error in dryRunArweave:", error);
+      throw error;
+    }
+  },
+
+  // User Process Management
+  async checkAndAddUserProcess() {
+    try {
+      let processId = await this.getUserProcessId();
+      if (!processId) {
+        processId = await this.createUserProcess();
+      }
+      this.processId = processId;
+
+      // Upload handlers after setting the process ID
+      await this.uploadHandlers();
+    } catch (error) {
+      console.error("Error checking and adding user process:", error);
+      throw error;
+    }
+  },
+
+  async getUserProcessId() {
+    this._checkWalletConnection();
+    try {
+      const { Messages, Error } = await this.sendMessageToArweave(
+        [{ name: "Action", value: "GetUser" }],
+        "",
+        USER_PROCESS_MAP_ID,
+      );
+
+      if (Error) throw new Error(Error);
+
+      if (Messages && Messages.length > 0) {
+        const userData = JSON.parse(Messages[0].Data);
+        if (userData.success && userData.processId) {
+          return userData.processId;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Error in getUserProcessId:", error);
+      return null;
+    }
+  },
+
+  async createUserProcess() {
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY = 2000; // 2 seconds
+    const TIMEOUT = 30000; // 30 seconds
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const spawnPromise = new Promise(async (resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            reject(new Error("Process spawn timed out"));
+          }, TIMEOUT);
+
+          try {
+            const newProcessId = await this.spawnProcess(
+              USER_PROCESS_MODULE,
+              SCHEDULER_ID,
+              [{ name: "App-Name", value: "tinyNav" }],
+              "Spawning process...",
+            );
+
+            clearTimeout(timeoutId);
+            resolve(newProcessId);
+          } catch (error) {
+            clearTimeout(timeoutId);
+            reject(error);
+          }
+        });
+
+        const newProcessId = await spawnPromise;
+
+        const { Error } = await this.sendMessageToArweave(
+          [
+            { name: "Action", value: "AddUser" },
+            { name: "ProcessID", value: newProcessId },
+          ],
+          "",
+          USER_PROCESS_MAP_ID,
+        );
+
+        if (Error) throw new Error(Error);
+
+        this.processId = newProcessId;
+        return newProcessId;
+      } catch (error) {
+        console.error(`Attempt ${attempt + 1} failed:`, error);
+        if (attempt === MAX_RETRIES - 1) {
+          throw new Error(
+            `Failed to create user process after ${MAX_RETRIES} attempts`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+      }
+    }
+  },
+
+  // Add this new method
+  async uploadHandlers() {
+    try {
+      console.log("Uploading handlers...");
+      const response = await fetch("./ao/main.lua");
+      const handlersCode = await response.text();
+
+      const evalMessageId = await message({
+        process: this.processId,
+        tags: [{ name: "Action", value: "Eval" }],
+        data: handlersCode,
+        signer: this.signer,
+      });
+
+      const { Messages, Output, Error } = await result({
+        process: this.processId,
+        message: evalMessageId,
+      });
+
+      if (Error) {
+        console.error("Error uploading handlers:", Error);
+        throw new Error(Error);
+      } else {
+        console.log("Handlers uploaded successfully");
+      }
+    } catch (error) {
+      console.error("Error uploading handlers:", error);
+      throw error;
+    }
+  },
+
+  async spawnProcess(moduleId, schedulerId, tags, data) {
+    this._checkWalletConnection();
+    try {
+      return await spawn({
+        module: moduleId,
+        scheduler: schedulerId,
+        signer: this.signer,
+        tags,
+        data,
+      });
+    } catch (error) {
+      console.error("Error spawning process:", error);
+      throw error;
+    }
+  },
+
+  // Private Helper Methods
   async _connectWithMethod(method) {
     switch (method) {
       case "ArConnect":
-        await this.connectArConnect();
+        await this._connectArConnect();
         break;
       case "QuickWallet":
-        await this.connectQuickWallet();
+        await this._connectQuickWallet();
         break;
       case "ArweaveApp":
-        await this.connectArweaveApp();
+        await this._connectArweaveApp();
         break;
       default:
         throw new Error("Unknown wallet method");
+    }
+  },
+
+  async _connectArConnect() {
+    await ArConnect.connect({
+      permissions: ["ACCESS_ADDRESS", "SIGN_TRANSACTION"],
+    });
+    this.address = await window.arweaveWallet.getActiveAddress();
+    this.connection = window.arweaveWallet;
+    this.authMethod = "ArConnect";
+  },
+
+  async _connectQuickWallet() {
+    await QuickWallet.connect();
+    this.address = await QuickWallet.getActiveAddress();
+    this.connection = QuickWallet;
+    this.authMethod = "QuickWallet";
+  },
+
+  async _connectArweaveApp() {
+    const arweaveAppWallet = new ArweaveWebWallet();
+    arweaveAppWallet.setUrl("https://arweave.app");
+    await arweaveAppWallet.connect();
+    this.address = arweaveAppWallet.namespaces.arweaveWallet.getActiveAddress();
+    this.connection = arweaveAppWallet;
+    this.authMethod = "ArweaveApp";
+  },
+
+  async _disconnectWallet() {
+    switch (this.authMethod) {
+      case "ArConnect":
+        await window.arweaveWallet.disconnect();
+        break;
+      case "QuickWallet":
+        await QuickWallet.disconnect();
+        break;
+      case "ArweaveApp":
+        if (
+          this.connection &&
+          typeof this.connection.disconnect === "function"
+        ) {
+          await this.connection.disconnect();
+        }
+        break;
     }
   },
 
@@ -81,79 +345,13 @@ export const ArweaveWalletConnection = {
   },
 
   _cacheWalletInfo() {
-    // Session-specific data
-    sessionStorage.setItem("currentWalletMethod", this.authMethod);
-    sessionStorage.setItem("currentWalletAddress", this.address);
-
-    // Long-term data
-    localStorage.setItem("lastUsedWalletMethod", this.authMethod);
-    localStorage.setItem("lastUsedWalletAddress", this.address);
-  },
-
-  async reconnectFromCache() {
-    console.log("Trying to reconnect from cache");
-    const cachedMethod = sessionStorage.getItem("cachedWalletMethod");
-    const cachedAddress = sessionStorage.getItem("cachedWalletAddress");
-
-    if (cachedMethod && cachedAddress) {
-      try {
-        await this._connectWithMethod(cachedMethod);
-        if (this.address === cachedAddress) {
-          this._createSigner();
-          console.log("Successfully reconnected from cache");
-          return true;
-        } else {
-          console.log(
-            "Cached address doesn't match current address. Clearing cache.",
-          );
-          this._clearCache();
-        }
-      } catch (error) {
-        console.error("Failed to reconnect from cache:", error);
-        this._clearCache();
-      }
-    }
-    return false;
+    sessionStorage.setItem("cachedWalletMethod", this.authMethod);
+    sessionStorage.setItem("cachedWalletAddress", this.address);
   },
 
   _clearCache() {
     sessionStorage.removeItem("cachedWalletMethod");
     sessionStorage.removeItem("cachedWalletAddress");
-    sessionStorage.removeItem("cachedBangs");
-    sessionStorage.removeItem("cachedFallbackSearchEngine");
-  },
-
-  async disconnect() {
-    try {
-      switch (this.authMethod) {
-        case "ArConnect":
-          await window.arweaveWallet.disconnect();
-          break;
-        case "QuickWallet":
-          await QuickWallet.disconnect();
-          break;
-        case "ArweaveApp":
-          if (
-            this.connection &&
-            typeof this.connection.disconnect === "function"
-          ) {
-            await this.connection.disconnect();
-          }
-          break;
-        default:
-          console.warn(
-            "Unknown auth method, no specific disconnect action taken",
-          );
-      }
-
-      this._clearCache();
-      this._resetState();
-
-      console.log("Wallet disconnected successfully");
-    } catch (error) {
-      console.error("Error disconnecting wallet:", error);
-      throw error;
-    }
   },
 
   _resetState() {
@@ -161,207 +359,24 @@ export const ArweaveWalletConnection = {
     this.connection = null;
     this.signer = null;
     this.authMethod = null;
+    this.processId = null;
   },
 
-  async connectArConnect() {
-    await ArConnect.connect({
-      permissions: ["ACCESS_ADDRESS", "SIGN_TRANSACTION"],
-    });
-    this.address = await window.arweaveWallet.getActiveAddress();
-    this.connection = window.arweaveWallet;
-    this.authMethod = "ArConnect";
-  },
-
-  async connectQuickWallet() {
-    await QuickWallet.connect();
-    this.address = await QuickWallet.getActiveAddress();
-    this.connection = QuickWallet;
-    this.authMethod = "QuickWallet";
-  },
-
-  async connectArweaveApp() {
-    const arweaveAppWallet = new ArweaveWebWallet();
-    arweaveAppWallet.setUrl("https://arweave.app");
-    await arweaveAppWallet.connect();
-    this.generatedWallet = arweaveAppWallet;
-    const arweaveWalletNamespace = arweaveAppWallet.namespaces.arweaveWallet;
-
-    // Get the active address
-    this.address = arweaveWalletNamespace.getActiveAddress();
-    this.connection = arweaveAppWallet;
-    this.authMethod = "ArweaveApp";
-  },
-
-  async sendMessageToArweave(tags, data = "", processId = PROCESS_ID) {
+  _checkWalletConnection() {
     if (!this.signer) {
       throw new Error("Wallet not connected");
     }
+  },
 
-    console.log("Sending message to Arweave:");
-    console.log("Tags:", tags);
-    console.log("Data:", data);
-    console.log("Process ID:", processId);
-
-    // Ensure tags is always an array
+  _ensureSafeTags(tags) {
     const safeTags = Array.isArray(tags) ? tags : [];
-
-    // Add a default tag if the array is empty
     if (safeTags.length === 0) {
       safeTags.push({ name: "Action", value: "Default" });
     }
-
-    // Ensure data is always a string
-    const safeData = typeof data === "string" ? data : JSON.stringify(data);
-
-    try {
-      const messageId = await message({
-        process: processId,
-        tags: safeTags,
-        signer: this.signer,
-        data: safeData,
-      });
-
-      console.log("Message ID:", messageId);
-      let { Messages, Error } = await result({
-        process: processId,
-        message: messageId,
-      });
-
-      console.log("Messages:", Messages);
-
-      if (Error) console.error("Error in Arweave response:", Error);
-      else console.log("Arweave action completed successfully");
-
-      return { Messages, Error };
-    } catch (error) {
-      console.error("Error in sendMessageToArweave:", error);
-      throw error;
-    }
+    return safeTags;
   },
 
-  async dryRunArweave(tags, data = "", processId = PROCESS_ID) {
-    if (!this.signer) {
-      throw new Error("Wallet not connected");
-    }
-    try {
-      const { Messages, Error } = await dryrun({
-        process: processId,
-        tags: tags,
-        data: data,
-        signer: this.signer,
-      });
-
-      if (Error) {
-        console.error("Error in dryRunArweave:", Error);
-        throw new Error(Error);
-      }
-
-      console.log("Dry run completed successfully");
-      console.log(Messages);
-      return { Messages, Error };
-    } catch (error) {
-      console.error("Error in dryRunArweave:", error);
-      throw error;
-    }
-  },
-
-  async checkAndAddUserProcess() {
-    try {
-      const processId = await this.getUserProcessId();
-      if (!processId) {
-        const newProcessId = await this.createUserProcess();
-        console.log("New user process created:", newProcessId);
-      } else {
-        console.log("Existing user process found:", processId);
-      }
-      this.processId = processId;
-    } catch (error) {
-      console.error("Error checking and adding user process:", error);
-      throw error;
-    }
-  },
-
-  async getUserProcessId() {
-    if (!this.signer) {
-      throw new Error("Wallet not connected");
-    }
-
-    try {
-      const { Messages, Error } = await this.dryRunArweave(
-        [{ name: "Action", value: "GetUser" }],
-        "",
-        USER_PROCESS_MAP_ID,
-      );
-
-      if (Error) {
-        console.error("Error getting user process ID:", Error);
-        return await this.createUserProcess();
-      }
-
-      if (Messages && Messages.length > 0) {
-        const userData = JSON.parse(Messages[0].Data);
-        if (userData.success && userData.processId) {
-          this.processId = userData.processId;
-          return userData.processId;
-        }
-      }
-
-      return await this.createUserProcess();
-    } catch (error) {
-      console.error("Error in getUserProcessId:", error);
-      throw error;
-    }
-  },
-
-  async createUserProcess() {
-    try {
-      const newProcessId = await this.spawnProcess(
-        USER_PROCESS_MODULE,
-        SCHEDULER_ID,
-        [{ name: "App-Name", value: "tinyNav" }],
-        "Spawning process...",
-      );
-
-      const { Messages, Error } = await this.sendMessageToArweave(
-        [
-          { name: "Action", value: "AddUser" },
-          { name: "ProcessID", value: newProcessId },
-        ],
-        "",
-        USER_PROCESS_MAP_ID,
-      );
-
-      if (Error) {
-        throw new Error(Error);
-      }
-
-      console.log("User process created and added:", newProcessId);
-      this.processId = newProcessId;
-      return newProcessId;
-    } catch (error) {
-      console.error("Error creating user process:", error);
-      throw error;
-    }
-  },
-
-  async spawnProcess(moduleId, schedulerId, tags, data) {
-    if (!this.signer) {
-      throw new Error("Wallet not connected");
-    }
-
-    try {
-      const processId = await spawn({
-        module: moduleId,
-        scheduler: schedulerId,
-        signer: this.signer,
-        tags: tags,
-        data: data,
-      });
-
-      return processId;
-    } catch (error) {
-      console.error("Error spawning process:", error);
-      throw error;
-    }
+  _ensureSafeData(data) {
+    return typeof data === "string" ? data : JSON.stringify(data);
   },
 };

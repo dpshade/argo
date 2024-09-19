@@ -1,342 +1,126 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick, provide } from "vue";
+import { ref, provide, nextTick, onMounted, watch } from "vue";
+import { useWallet } from "./composables/useWallet";
+import { useSearch } from "./composables/useSearch";
+import { useBangs } from "./composables/useBangs";
+import { useAppState } from "./composables/useAppState";
+import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import SearchBar from "./components/SearchBar.vue";
 import BangEditor from "./components/BangEditor.vue";
 import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
-import { ArweaveWalletConnection as AWC } from "./helpers/arweaveWallet.js";
-import { handleSearch } from "./helpers/searchLogic.js";
-import {
-    getAllBangs,
-    getFallbackSearchEngine,
-    getArweaveExplorer,
-} from "./helpers/bangHelpers";
-import { store } from "./store";
 
-const searchResult = ref("");
-const currentView = ref("search");
-const bangs = ref([]);
-const walletAddress = ref(null);
-const walletConnection = ref(null);
 const searchBarRef = ref(null);
-const initialUrlParamsHandled = ref(false);
-const isHeadless = ref(false);
-const isDarkMode = ref(false);
-const isWalletConnected = ref(false);
-const fallbackSearchEngine = ref("https://google.com/search?q=%s");
-const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
 const bangEditorRef = ref(null);
-const cachedBangsData = ref(null);
 const isInitialized = ref(false);
+
+const {
+    isWalletConnected,
+    walletAddress,
+    walletConnection,
+    connectWallet,
+    disconnectWallet,
+} = useWallet();
+
+const {
+    bangs,
+    fallbackSearchEngine,
+    arweaveExplorer,
+    updateFallback,
+    updateBangs,
+    updateExplorer,
+    fetchAndLoadData,
+    incrementEditViewCounter,
+} = useBangs();
+
+const { searchResult, handleSearch } = useSearch();
+const {
+    currentView,
+    isHeadless,
+    isDarkMode,
+    showBangEditor,
+    toggleDarkMode,
+    handleUrlParams,
+} = useAppState();
+
+provide("isWalletConnected", isWalletConnected);
+provide("walletAddress", walletAddress);
 provide("isInitialized", isInitialized);
+provide("cachedBangsData", ref(null));
 
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
-const lastFetchTime = ref(0);
+function handleSearchShortcut() {
+    currentView.value = "search";
+    nextTick(() => {
+        if (searchBarRef.value) {
+            searchBarRef.value.focusInput();
+        }
+    });
+}
 
-function handleKeyboardShortcut(event) {
-    if ((event.metaKey || event.ctrlKey) && event.key === "k") {
-        event.preventDefault();
-        currentView.value = "search";
+function handleEditorShortcut() {
+    if (isWalletConnected.value) {
+        currentView.value = "bangEditor";
         nextTick(() => {
-            if (searchBarRef.value) {
-                searchBarRef.value.focusInput();
+            if (bangEditorRef.value) {
+                bangEditorRef.value.focusNewBangInput();
             }
         });
-    } else if ((event.metaKey || event.ctrlKey) && event.key === "e") {
-        event.preventDefault();
-        if (isWalletConnected.value) {
-            currentView.value = "bangEditor";
-            nextTick(() => {
-                if (bangEditorRef.value) {
-                    bangEditorRef.value.focusNewBangInput();
-                }
-            });
-        } else {
-            console.log("Please connect your wallet to access the bang editor");
-        }
+    } else {
+        console.log("Please connect your wallet to access the bang editor");
     }
 }
 
-function checkCachedRedirects(query) {
-    const cachedRedirects = JSON.parse(
-        localStorage.getItem("cachedRedirects") || "{}",
-    );
-    const currentTime = Date.now();
-
-    for (const [key, value] of Object.entries(cachedRedirects)) {
-        if (
-            query.toLowerCase().includes(key.toLowerCase()) &&
-            currentTime - value.timestamp < CACHE_DURATION
-        ) {
-            return value.url.replace("%s", encodeURIComponent(query));
-        }
-    }
-
-    return null;
-}
-
-function cacheRedirect(key, url) {
-    const cachedRedirects = JSON.parse(
-        localStorage.getItem("cachedRedirects") || "{}",
-    );
-    cachedRedirects[key] = { url, timestamp: Date.now() };
-    localStorage.setItem("cachedRedirects", JSON.stringify(cachedRedirects));
-}
-
-async function onSearch(query) {
-    store.isLoading = true;
-    try {
-        const result = await handleSearch(
-            query,
-            bangs.value,
-            walletConnection.value,
-            fallbackSearchEngine.value,
-            arweaveExplorer.value,
-        );
-        searchResult.value = result;
-        if (result.startsWith("Redirecting to:")) {
-            const url = result.split(": ")[1];
-            window.open(url, "_blank");
-        }
-    } catch (error) {
-        console.error("Error during search:", error);
-        searchResult.value = "An error occurred during the search.";
-    } finally {
-        store.isLoading = false;
-    }
-}
+useKeyboardShortcuts({ handleSearchShortcut, handleEditorShortcut });
 
 function toggleView() {
     currentView.value =
         currentView.value === "search" ? "bangEditor" : "search";
-}
-
-function updateBangs(newBangs) {
-    bangs.value = newBangs;
-    saveBangsToCache(newBangs);
-}
-
-function saveBangsToCache(bangsToCache) {
-    sessionStorage.setItem("currentBangs", JSON.stringify(bangsToCache));
-    localStorage.setItem("savedBangs", JSON.stringify(bangsToCache));
-    localStorage.setItem("bangsCacheTime", Date.now().toString());
-}
-
-function saveFallbackToCache(fallback) {
-    sessionStorage.setItem("currentFallbackSearchEngine", fallback);
-    localStorage.setItem("savedFallbackSearchEngine", fallback);
-    localStorage.setItem("fallbackCacheTime", Date.now().toString());
-}
-
-function loadFromCache() {
-    const cachedBangs = JSON.parse(
-        sessionStorage.getItem("currentBangs") || "null",
-    );
-    const cachedFallback = sessionStorage.getItem(
-        "currentFallbackSearchEngine",
-    );
-
-    if (cachedBangs) {
-        bangs.value = cachedBangs;
-    } else {
-        const savedBangs = JSON.parse(
-            localStorage.getItem("savedBangs") || "null",
-        );
-        if (savedBangs) {
-            bangs.value = savedBangs;
-            sessionStorage.setItem("currentBangs", JSON.stringify(savedBangs));
-        }
-    }
-
-    if (cachedFallback) {
-        fallbackSearchEngine.value = cachedFallback;
-    } else {
-        const savedFallback = localStorage.getItem("savedFallbackSearchEngine");
-        if (savedFallback) {
-            fallbackSearchEngine.value = savedFallback;
-            sessionStorage.setItem(
-                "currentFallbackSearchEngine",
-                savedFallback,
-            );
-        }
+    if (currentView.value === "bangEditor") {
+        incrementEditViewCounter();
     }
 }
 
 async function onWalletConnected(address) {
-    walletAddress.value = address;
-    walletConnection.value = AWC;
-    isWalletConnected.value = true;
-
-    try {
-        await AWC.checkAndAddUserProcess();
-        console.log("User process ID:", AWC.processId);
-    } catch (error) {
-        console.error("Error checking/adding user process:", error);
-    }
-
-    await fetchAndLoadData(true);
+    console.log("Wallet connected:", address);
+    await connectWallet(address);
+    // fetchAndLoadData will be called automatically due to the watch in useBangs
     if (searchBarRef.value) {
         searchBarRef.value.focusInput();
     }
 }
 
-async function fetchAndLoadData(forceUpdate = false) {
-    if (!forceUpdate && cachedBangsData.value) {
-        console.log("Using cached data for this session");
-        bangs.value = cachedBangsData.value.bangs;
-        fallbackSearchEngine.value = cachedBangsData.value.fallbackSearchEngine;
-        arweaveExplorer.value = cachedBangsData.value.arweaveExplorer;
-        return;
-    }
-
-    if (!forceUpdate) {
-        loadFromCache();
-        if (
-            bangs.value.length > 0 &&
-            fallbackSearchEngine.value &&
-            arweaveExplorer.value
-        ) {
-            return;
-        }
-    }
-
-    try {
-        store.isLoading = true;
-        const [bangsResult, fallbackResult, explorerResult] = await Promise.all(
-            [
-                getAllBangs(walletConnection.value),
-                getFallbackSearchEngine(walletConnection.value),
-                getArweaveExplorer(walletConnection.value),
-            ],
-        );
-
-        if (
-            bangsResult &&
-            bangsResult.success &&
-            Array.isArray(bangsResult.Bangs)
-        ) {
-            bangs.value = bangsResult.Bangs;
-            saveBangsToCache(bangsResult.Bangs);
-        }
-
-        if (fallbackResult && fallbackResult.success && fallbackResult.url) {
-            fallbackSearchEngine.value = fallbackResult.url;
-            saveFallbackToCache(fallbackResult.url);
-        }
-
-        if (explorerResult && explorerResult.success && explorerResult.url) {
-            arweaveExplorer.value = explorerResult.url;
-            sessionStorage.setItem(
-                "currentArweaveExplorer",
-                explorerResult.url,
-            );
-        }
-
-        cachedBangsData.value = {
-            bangs: bangs.value,
-            fallbackSearchEngine: fallbackSearchEngine.value,
-            arweaveExplorer: arweaveExplorer.value,
-        };
-
-        console.log(
-            "Bangs, fallback search engine, and Arweave explorer fetched successfully",
-        );
-        console.log(bangs);
-        console.log(fallbackSearchEngine);
-        console.log(arweaveExplorer);
-    } catch (error) {
-        console.error("Error fetching data:", error);
-    } finally {
-        store.isLoading = false;
-    }
-}
-
 async function onWalletDisconnected() {
-    walletAddress.value = null;
-    walletConnection.value = null;
-    isWalletConnected.value = false;
-    bangs.value = [];
-    fallbackSearchEngine.value = "https://google.com/search?q=%s";
-    currentView.value = "search";
-    cachedBangsData.value = null;
-    sessionStorage.clear();
+    console.log("Wallet disconnected");
+    await disconnectWallet();
 }
-
-async function handleUrlParams() {
-    if (initialUrlParamsHandled.value) return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const query = urlParams.get("q");
-    console.log("URL Params", urlParams);
-
-    if (query) {
-        isHeadless.value = true;
-    }
-
-    initialUrlParamsHandled.value = true;
-}
-
-async function initializeApp() {
-    if (isInitialized.value) return;
-
-    loadFromCache();
-
-    const reconnected = await AWC.reconnectFromCache();
-    if (reconnected) {
-        walletAddress.value = AWC.address;
-        walletConnection.value = AWC;
-        isWalletConnected.value = true;
-        await fetchAndLoadData(false);
-    } else {
-        // If not reconnected, still try to load data from cache
-        loadFromCache();
-    }
-
-    await handleUrlParams();
-    isInitialized.value = true;
-}
-
-function toggleDarkMode() {
-    isDarkMode.value = !isDarkMode.value;
-    document.body.classList.toggle("dark-mode", isDarkMode.value);
-    localStorage.setItem("darkMode", isDarkMode.value);
-}
-
-watch(() => window.location.search, handleUrlParams);
 
 onMounted(async () => {
-    await initializeApp();
-
-    const savedDarkMode = localStorage.getItem("darkMode");
-    if (savedDarkMode !== null) {
-        isDarkMode.value = JSON.parse(savedDarkMode);
-        document.body.classList.toggle("dark-mode", isDarkMode.value);
-    }
-
-    window.addEventListener("keydown", handleKeyboardShortcut);
+    await handleUrlParams();
+    isInitialized.value = true;
 });
 
-onUnmounted(() => {
-    window.removeEventListener("keydown", handleKeyboardShortcut);
-});
-
-// Handle the popstate event for browser back/forward buttons
-window.addEventListener("popstate", () => {
-    if (!isInitialized.value) {
-        initializeApp();
+watch(walletAddress, async (newAddress, oldAddress) => {
+    if (newAddress && newAddress !== oldAddress) {
+        // Use nextTick to ensure the wallet connection is fully established
+        await nextTick();
+        if (walletConnection.value && walletConnection.value.processId) {
+            await fetchAndLoadData(walletConnection.value);
+        } else {
+            console.warn(
+                "Wallet connected but process ID not set. Skipping data fetch.",
+            );
+        }
     }
 });
 
-// Expose necessary methods and data
-defineExpose({
-    onSearch,
-    bangs,
-    fallbackSearchEngine,
-    isWalletConnected,
-    walletAddress,
+// Watch for changes in bangs, fallbackSearchEngine, and arweaveExplorer
+watch([bangs, fallbackSearchEngine, arweaveExplorer], () => {
+    // You can add any additional UI update logic here if needed
+    console.log("Data updated, UI should reflect changes");
 });
 </script>
+
 <template>
     <HeadlessRedirect v-if="isHeadless" />
     <template v-else>
@@ -386,41 +170,43 @@ defineExpose({
                 ></path>
             </svg>
         </button>
-        <div class="top-right">
-            <button
-                @click="toggleView"
-                class="toggle-button"
-                v-if="isWalletConnected"
-            >
-                {{ currentView === "search" ? "Edit Bangs" : "Search" }}
-            </button>
-            <ArweaveWalletConnection
-                @walletConnected="onWalletConnected"
-                @walletDisconnected="onWalletDisconnected"
-            />
-        </div>
-        <div class="container">
+        <div class="container" :class="{ 'dark-mode': isDarkMode }">
+            <div class="top-right">
+                <button @click="toggleView" v-if="isWalletConnected">
+                    {{ currentView === "search" ? "Edit Bangs" : "Search" }}
+                </button>
+                <ArweaveWalletConnection
+                    @walletConnected="onWalletConnected"
+                    @walletDisconnected="onWalletDisconnected"
+                />
+            </div>
             <h1>tinyNav</h1>
             <SearchBar
                 v-if="currentView === 'search'"
-                @search="onSearch"
-                ref="searchBarRef"
+                @search="
+                    (query) =>
+                        handleSearch(
+                            query,
+                            bangs,
+                            walletConnection,
+                            fallbackSearchEngine,
+                            arweaveExplorer,
+                        )
+                "
             />
             <BangEditor
-                v-if="currentView === 'bangEditor' && isWalletConnected"
+                v-if="showBangEditor"
                 :bangs="bangs"
                 :fallbackSearchEngine="fallbackSearchEngine"
                 :arweaveExplorer="arweaveExplorer"
                 :walletConnection="walletConnection"
                 @update:bangs="updateBangs"
-                @update:fallbackSearchEngine="fallbackSearchEngine = $event"
-                @update:arweaveExplorer="arweaveExplorer = $event"
-                @force-update="fetchAndLoadData(true)"
-                ref="bangEditorRef"
+                @update:fallbackSearchEngine="updateFallback"
+                @update:arweaveExplorer="updateExplorer"
+                @force-update="() => fetchAndLoadData(walletConnection, true)"
             />
-
-            <div v-if="searchResult && showResult" class="result fade-out">
-                <!-- {{ searchResult }} -->
+            <div v-if="searchResult" class="result fade-out">
+                {{ searchResult }}
             </div>
         </div>
     </template>
@@ -443,19 +229,18 @@ defineExpose({
     --border-color: #e0e0e0;
 }
 
-/* Dark mode styles with purple-ish accents */
 body.dark-mode {
     --bg-color: #121212;
     --container-bg: #1e1e1e;
     --input-bg: #2a2a2a;
     --input-focus-bg: #333333;
-    --button-bg: #623ba5; /* Purple-ish button color */
-    --button-hover-bg: #9575cd; /* Lighter purple for button hover */
-    --header-text-color: #b39ddb; /* Light purple for header text */
+    --button-bg: #623ba5;
+    --button-hover-bg: #9575cd;
+    --header-text-color: #b39ddb;
     --text-color: #ffffff;
     --placeholder-color: #888888;
-    --link-color: #ce93d8; /* Light purple for links */
-    --link-hover-color: #e1bee7; /* Lighter purple for link hover */
+    --link-color: #ce93d8;
+    --link-hover-color: #e1bee7;
     --border-color: #333333;
 }
 
@@ -490,16 +275,24 @@ body {
     justify-content: center;
     background-color: var(--container-bg);
     padding: 30px;
+    position: relative;
+    width: 100%;
+    box-sizing: border-box;
 }
 
-.toggle-button {
-    margin-left: 10px;
+.top-right {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 
 h1 {
     color: var(--text-color);
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 20px;
     font-size: 2.5rem;
     font-weight: 300;
 }
@@ -516,15 +309,6 @@ h1 {
 
 .fade-out {
     animation: fadeOut 1s ease-out 3s forwards;
-}
-
-.top-right {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
 }
 
 button {
@@ -617,30 +401,45 @@ button:hover {
 }
 
 @media screen and (max-width: 768px) {
-    /* #app {
-    } */
+    body {
+        font-size: 14px;
+        -webkit-text-size-adjust: 100%;
+    }
 
     .container {
-        padding: 20px;
-    }
-
-    .top-right {
-        flex-direction: column;
-        align-items: flex-end;
-    }
-
-    .toggle-button {
-        margin-left: 0;
-        margin-top: 10px;
+        padding: 20px 10px;
     }
 
     h1 {
-        font-size: 2rem;
+        font-size: 1.8rem;
+        margin-bottom: 15px;
+    }
+
+    .top-right {
+        justify-content: end;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+    }
+
+    .toggle-button {
+        margin: 5px;
+        flex-grow: 1;
     }
 
     .dark-mode-toggle {
         top: 10px;
         left: 10px;
+    }
+
+    input[type="text"],
+    input[type="url"],
+    textarea {
+        font-size: 16px;
+        padding: 1.15rem 1rem;
+    }
+
+    button {
+        touch-action: manipulation;
     }
 }
 </style>

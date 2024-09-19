@@ -140,10 +140,13 @@ export async function handleSearch(
   }
 
   // If no bang or ArNS domain is found, use the fallback search engine
-  const searchUrl = fallbackSearchEngine.replace(
-    "%s",
-    encodeURIComponent(trimmedQuery),
-  );
+  const searchUrl = (
+    fallbackSearchEngine.startsWith("https://www.")
+      ? fallbackSearchEngine
+      : "https://www." +
+        fallbackSearchEngine.replace(/^https?:\/\/(www\.)?/, "")
+  ).replace("%s", encodeURIComponent(trimmedQuery));
+
   return `Redirecting to: ${searchUrl}`;
 }
 

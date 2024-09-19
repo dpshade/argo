@@ -1,5 +1,3 @@
--- aos tinyNavMap
-
 local json = require("json")
 
 UserProcessMap = UserProcessMap or {}
@@ -16,9 +14,23 @@ Handlers.add('AddUser',
             print("Error: Missing ProcessID")
             ao.send({
                 Target = msg.From,
-                Action = "Response",
                 Tags = { ["Action"] = "AddUser" },
                 Data = json.encode({ error = "Missing ProcessID" })
+            })
+            return
+        end
+
+        -- Check if the user already exists
+        if UserProcessMap[walletAddress] then
+            print("User already exists: " .. walletAddress)
+            ao.send({
+                Target = msg.From,
+                Tags = { ["Action"] = "AddUser" },
+                Data = json.encode({
+                    success = false,
+                    error = "User already exists",
+                    existingProcessId = UserProcessMap[walletAddress]
+                })
             })
             return
         end
@@ -29,7 +41,6 @@ Handlers.add('AddUser',
         print("User added: Wallet " .. walletAddress .. " associated with ProcessID " .. processId)
         ao.send({
             Target = msg.From,
-            Action = "Response",
             Tags = { ["Action"] = "AddUser" },
             Data = json.encode({
                 success = true,
@@ -52,7 +63,6 @@ Handlers.add('GetUser',
             print("ProcessID found for wallet " .. walletAddress .. ": " .. processId)
             ao.send({
                 Target = msg.From,
-                Action = "Response",
                 Tags = { ["Action"] = "GetUser" },
                 Data = json.encode({
                     success = true,
@@ -64,11 +74,9 @@ Handlers.add('GetUser',
             print("No ProcessID found for wallet " .. walletAddress)
             ao.send({
                 Target = msg.From,
-                Action = "Response",
                 Tags = { ["Action"] = "GetUser" },
                 Data = json.encode({
                     success = false,
-                    error = "No ProcessID found for this wallet address"
                 })
             })
         end
