@@ -28,8 +28,6 @@ export function useWallet() {
     } catch (error) {
       console.error("Error during wallet connection:", error);
       disconnectWallet();
-    } finally {
-      store.isLoading = false;
     }
   }
 

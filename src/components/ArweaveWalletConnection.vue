@@ -37,19 +37,6 @@ export default {
                 method: "ArConnect",
             },
             {
-                id: "quickWalletOption",
-                name: "QuickWallet",
-                description: "Creates a new wallet for you, instantly.",
-                iconStyle: {
-                    backgroundImage:
-                        "url('https://arweave.net/aw_3Afim3oQU3JkaeWlh8DXQOcS8ZWt3niRpq-rrECA')",
-                    backgroundColor: "rgb(9, 70, 37)",
-                },
-                disabled: false,
-                recommended: true,
-                method: "QuickWallet",
-            },
-            {
                 id: "arweaveAppOption",
                 name: "Arweave.app",
                 description: "Web based wallet software",
@@ -60,6 +47,19 @@ export default {
                 },
                 disabled: false,
                 method: "ArweaveApp",
+            },
+            {
+                id: "quickWalletOption",
+                name: "QuickWallet",
+                description: "Creates a new wallet for you, instantly.",
+                iconStyle: {
+                    backgroundImage:
+                        "url('https://arweave.net/aw_3Afim3oQU3JkaeWlh8DXQOcS8ZWt3niRpq-rrECA')",
+                    backgroundColor: "rgb(9, 70, 37)",
+                },
+                disabled: false,
+                recommended: false,
+                method: "QuickWallet",
             },
         ];
 

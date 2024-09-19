@@ -7,7 +7,6 @@ import {
   updateBang,
   deleteBang,
 } from "../helpers/bangHelpers";
-import { store } from "../store";
 
 export function useBangs(walletAddress, walletConnection, processId) {
   const bangs = ref([]);
