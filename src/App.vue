@@ -26,6 +26,7 @@ const {
     processId,
     connectWallet,
     disconnectWallet,
+    reconnectFromCache,
 } = useWallet();
 
 const {
@@ -36,7 +37,6 @@ const {
     updateBangs,
     updateExplorer,
     fetchAndLoadData,
-    incrementEditViewCounter,
     resetState,
 } = useBangs(walletAddress, walletConnection, processId);
 
@@ -58,7 +58,9 @@ provide("wallet", {
     processId,
     connectWallet,
     disconnectWallet,
+    reconnectFromCache,
 });
+
 provide("cachedBangsData", ref(null));
 
 function handleSearchShortcut() {

@@ -58,12 +58,14 @@ export const ArweaveWalletConnection = {
   async reconnectFromCache() {
     const cachedMethod = localStorage.getItem("cachedWalletMethod");
     const cachedAddress = localStorage.getItem("cachedWalletAddress");
+    const cachedProcessId = localStorage.getItem("cachedProcessId");
 
-    if (cachedMethod && cachedAddress) {
+    if (cachedMethod && cachedAddress && cachedProcessId) {
       try {
         await this._connectWithMethod(cachedMethod);
         if (this.address === cachedAddress) {
           this._createSigner();
+          this.processId = cachedProcessId;
           return true;
         }
         this._clearCache();

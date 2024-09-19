@@ -3,9 +3,8 @@ import { onMounted, inject } from "vue";
 import { handleSearch } from "../helpers/searchLogic.js";
 import { getAllBangs } from "../helpers/bangHelpers.js";
 import { cacheModule } from "../helpers/cacheModule";
-import { useWallet } from "../composables/useWallet";
 
-const { walletConnection, reconnectLastWallet } = useWallet();
+const wallet = inject("wallet");
 
 onMounted(async () => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -18,12 +17,12 @@ onMounted(async () => {
             let fallbackSearchEngine = "https://google.com/search?q=%s";
             let arweaveExplorer = "https://viewblock.io/arweave/tx/%s";
 
-            // Attempt to reconnect the last used wallet
-            const reconnected = await reconnectLastWallet();
+            // Attempt to reconnect the cached wallet
+            const reconnected = await wallet.reconnectFromCache();
 
-            if (reconnected && walletConnection.value) {
-                console.log("Reconnected to last used wallet");
-                const result = await getAllBangs(walletConnection.value);
+            if (reconnected && wallet.walletConnection.value) {
+                console.log("Reconnected to cached wallet");
+                const result = await getAllBangs(wallet.walletConnection.value);
 
                 if (result.success) {
                     bangs = result.Bangs;
@@ -57,7 +56,7 @@ onMounted(async () => {
             const result = await handleSearch(
                 query,
                 bangs,
-                walletConnection.value,
+                wallet.walletConnection.value,
                 fallbackSearchEngine,
                 arweaveExplorer,
             );
