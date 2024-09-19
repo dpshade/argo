@@ -29,6 +29,11 @@ export const ArweaveWalletConnection = {
         this._createSigner();
         this._cacheWalletInfo();
         await this.checkAndAddUserProcess();
+        if (!this.processId) {
+          throw new Error("Failed to obtain a valid process ID");
+        }
+        console.log("Wallet connected successfully:", this.address);
+        console.log("Process ID:", this.processId);
         return this.address;
       }
       throw new Error("Failed to obtain wallet address");
@@ -51,8 +56,8 @@ export const ArweaveWalletConnection = {
   },
 
   async reconnectFromCache() {
-    const cachedMethod = sessionStorage.getItem("cachedWalletMethod");
-    const cachedAddress = sessionStorage.getItem("cachedWalletAddress");
+    const cachedMethod = localStorage.getItem("cachedWalletMethod");
+    const cachedAddress = localStorage.getItem("cachedWalletAddress");
 
     if (cachedMethod && cachedAddress) {
       try {
@@ -127,7 +132,12 @@ export const ArweaveWalletConnection = {
       if (!processId) {
         processId = await this.createUserProcess();
       }
+      if (!processId) {
+        throw new Error("Failed to obtain a valid process ID");
+      }
       this.processId = processId;
+      console.log("Process ID set:", this.processId);
+      this._cacheWalletInfo(); // Update cache with new process ID
 
       // Upload handlers after setting the process ID
       await this.uploadHandlers();
@@ -139,7 +149,14 @@ export const ArweaveWalletConnection = {
 
   async getUserProcessId() {
     this._checkWalletConnection();
+    // const cachedProcessId = localStorage.getItem("cachedProcessId");
+    // if (cachedProcessId) {
+    //   console.log("Using cached process ID:", cachedProcessId);
+    //   return cachedProcessId;
+    // }
+
     try {
+      console.log("Fetching user process ID...");
       const { Messages, Error } = await this.sendMessageToArweave(
         [{ name: "Action", value: "GetUser" }],
         "",
@@ -148,12 +165,17 @@ export const ArweaveWalletConnection = {
 
       if (Error) throw new Error(Error);
 
+      console.log("GetUser response:", Messages);
+
       if (Messages && Messages.length > 0) {
         const userData = JSON.parse(Messages[0].Data);
         if (userData.success && userData.processId) {
+          console.log("Received process ID:", userData.processId);
+          localStorage.setItem("cachedProcessId", userData.processId);
           return userData.processId;
         }
       }
+      console.log("No process ID found in response");
       return null;
     } catch (error) {
       console.error("Error in getUserProcessId:", error);
@@ -223,34 +245,47 @@ export const ArweaveWalletConnection = {
       return;
     }
 
-    try {
-      console.log("Uploading handlers...");
+    if (!this.processId) {
+      console.error("Process ID not set. Cannot upload handlers.");
+      throw new Error("Process ID not set");
+    }
 
-      const response = await fetch(`./ao/main.lua`);
-      const handlersCode = await response.text();
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000; // 1 second
 
-      const evalMessageId = await message({
-        process: this.processId,
-        tags: [{ name: "Action", value: "Eval" }],
-        data: handlersCode,
-        signer: this.signer,
-      });
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`Uploading handlers... Attempt ${attempt}`);
 
-      const { Messages, Output, Error } = await result({
-        process: this.processId,
-        message: evalMessageId,
-      });
+        const response = await fetch(`./ao/main.lua`);
+        const handlersCode = await response.text();
 
-      if (Error) {
-        console.error("Error uploading handlers:", Error);
-        throw new Error(Error);
-      } else {
-        console.log("Handlers uploaded successfully");
-        this.handlersUploaded = true;
+        const evalMessageId = await message({
+          process: this.processId,
+          tags: [{ name: "Action", value: "Eval" }],
+          data: handlersCode,
+          signer: this.signer,
+        });
+
+        const { Messages, Output, Error } = await result({
+          process: this.processId,
+          message: evalMessageId,
+        });
+
+        if (Error) {
+          throw new Error(Error);
+        } else {
+          console.log("Handlers uploaded successfully");
+          this.handlersUploaded = true;
+          return;
+        }
+      } catch (error) {
+        console.error(`Error uploading handlers (Attempt ${attempt}):`, error);
+        if (attempt === MAX_RETRIES) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
       }
-    } catch (error) {
-      console.error("Error uploading handlers:", error);
-      throw error;
     }
   },
 
@@ -352,13 +387,15 @@ export const ArweaveWalletConnection = {
   },
 
   _cacheWalletInfo() {
-    sessionStorage.setItem("cachedWalletMethod", this.authMethod);
-    sessionStorage.setItem("cachedWalletAddress", this.address);
+    localStorage.setItem("cachedWalletMethod", this.authMethod);
+    localStorage.setItem("cachedWalletAddress", this.address);
+    localStorage.setItem("cachedProcessId", this.processId);
   },
 
   _clearCache() {
-    sessionStorage.removeItem("cachedWalletMethod");
-    sessionStorage.removeItem("cachedWalletAddress");
+    localStorage.removeItem("cachedWalletMethod");
+    localStorage.removeItem("cachedWalletAddress");
+    localStorage.removeItem("cachedProcessId");
   },
 
   _resetState() {

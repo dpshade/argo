@@ -1,4 +1,5 @@
 import { ref, watch } from "vue";
+import { debounce } from "lodash";
 import {
   getAllBangs,
   updateFallbackSearchEngine,
@@ -13,12 +14,14 @@ export function useBangs(walletAddress, walletConnection, processId) {
   const bangs = ref([]);
   const fallbackSearchEngine = ref("https://google.com/search?q=%s");
   const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
+  const lastFetchTime = ref(null);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
   function getCacheKey() {
     return `bangsData_${walletAddress.value}`;
   }
 
-  async function fetchAndLoadData(forceUpdate = false) {
+  const debouncedFetchAndLoadData = debounce(async (forceUpdate = false) => {
     if (!walletConnection.value || !walletConnection.value.processId) {
       console.warn(
         "Wallet not connected or process ID not set, skipping data fetch",
@@ -26,10 +29,15 @@ export function useBangs(walletAddress, walletConnection, processId) {
       return;
     }
 
+    const now = Date.now();
     const cacheKey = getCacheKey();
     const cachedData = cacheModule.get(cacheKey, "bangs");
 
-    if (!forceUpdate && cachedData) {
+    if (
+      !forceUpdate &&
+      cachedData &&
+      now - lastFetchTime.value < CACHE_DURATION
+    ) {
       console.log("Using cached data for wallet:", walletAddress.value);
       updateUIData(cachedData);
       return;
@@ -39,16 +47,24 @@ export function useBangs(walletAddress, walletConnection, processId) {
       const result = await getAllBangs(walletConnection.value);
       updateUIData(result);
       cacheModule.set(cacheKey, result, "bangs");
+      lastFetchTime.value = now;
       console.log(
         "Data fetched and updated successfully for wallet:",
         walletAddress.value,
       );
 
-      await dryRunUpdate();
+      // Perform dry run update less frequently
+      if (
+        forceUpdate ||
+        !lastFetchTime.value ||
+        now - lastFetchTime.value > CACHE_DURATION * 2
+      ) {
+        await dryRunUpdate();
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
     }
-  }
+  }, 1000);
 
   async function dryRunUpdate() {
     if (!walletConnection.value) {
@@ -95,7 +111,7 @@ export function useBangs(walletAddress, walletConnection, processId) {
         }
       }
 
-      await fetchAndLoadData(true);
+      await debouncedFetchAndLoadData(true);
     } catch (error) {
       console.error("Error updating bangs:", error);
       throw error;
@@ -146,14 +162,24 @@ export function useBangs(walletAddress, walletConnection, processId) {
     bangs.value = [];
     fallbackSearchEngine.value = "https://google.com/search?q=%s";
     arweaveExplorer.value = "https://viewblock.io/arweave/tx/%s";
+    lastFetchTime.value = null;
     cacheModule.clear("bangs");
   }
+
+  // Watch for wallet connection changes
+  watch([walletAddress, walletConnection], () => {
+    if (walletAddress.value && walletConnection.value) {
+      debouncedFetchAndLoadData();
+    } else {
+      resetState();
+    }
+  });
 
   return {
     bangs,
     fallbackSearchEngine,
     arweaveExplorer,
-    fetchAndLoadData,
+    fetchAndLoadData: debouncedFetchAndLoadData,
     updateBangs,
     updateFallback,
     updateExplorer,

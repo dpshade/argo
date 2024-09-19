@@ -65,10 +65,33 @@ const fetchAllGateways = async () => {
   }
 
   try {
-    const gateways = await io.getGateways();
-    const sortedGateways = gateways.sort(
-      (a, b) => b.operatorStake - a.operatorStake,
-    );
+    let allGateways = [];
+    let nextCursor = null;
+
+    do {
+      const gatewaysData = await io.getGateways({ cursor: nextCursor });
+      console.log("Fetched gateways data:", gatewaysData);
+
+      if (gatewaysData && Array.isArray(gatewaysData.items)) {
+        allGateways = allGateways.concat(gatewaysData.items);
+        nextCursor = gatewaysData.nextCursor;
+      } else {
+        console.error("Unexpected gateways data structure:", gatewaysData);
+        break;
+      }
+    } while (nextCursor);
+
+    console.log(`Total gateways fetched: ${allGateways.length}`);
+
+    const sortedGateways = allGateways.sort((a, b) => {
+      // Convert operatorStake to number to ensure proper comparison
+      const stakeA = Number(a.operatorStake);
+      const stakeB = Number(b.operatorStake);
+      // Sort in descending order
+      return stakeB - stakeA;
+    });
+
+    console.log("Top 5 gateways by operatorStake:", sortedGateways.slice(0, 5));
     cacheModule.set("allGateways", sortedGateways, "arns");
     return sortedGateways;
   } catch (error) {
@@ -89,26 +112,39 @@ export const resolveArNSDomain = async (domain) => {
     return null;
   }
 
-  const arIoLink = `https://${domain}.ar.io`;
-  const arIoResult = await checkAccess(arIoLink);
-  if (arIoResult.status) {
-    cacheModule.set(`arnsResolution_${domain}`, arIoLink, "arns");
-    return arIoLink;
-  }
+  try {
+    // First, try the .ar.io domain
+    const arIoLink = `https://${domain}.ar.io`;
+    console.log(`Checking .ar.io gateway: ${arIoLink}`);
+    const arIoResult = await checkAccess(arIoLink);
+    if (arIoResult.status) {
+      console.log(`Accessible .ar.io gateway found: ${arIoLink}`);
+      cacheModule.set(`arnsResolution_${domain}`, arIoLink, "arns");
+      return arIoLink;
+    }
 
-  const sortedGateways = await fetchAllGateways();
+    // If .ar.io is not accessible, try other gateways
+    const sortedGateways = await fetchAllGateways();
+    console.log("Sorted gateways:", sortedGateways);
 
-  for (const gateway of sortedGateways) {
-    if (gateway.settings?.fqdn) {
-      const link = `https://${domain}.${gateway.settings.fqdn}`;
-      const result = await checkAccess(link);
-      if (result.status) {
-        cacheModule.set(`arnsResolution_${domain}`, link, "arns");
-        return link;
+    for (const gateway of sortedGateways) {
+      if (gateway.settings?.fqdn) {
+        const link = `https://${domain}.${gateway.settings.fqdn}`;
+        console.log(`Checking gateway: ${link}`);
+        const result = await checkAccess(link);
+        if (result.status) {
+          console.log(`Accessible gateway found: ${link}`);
+          cacheModule.set(`arnsResolution_${domain}`, link, "arns");
+          return link;
+        }
       }
     }
-  }
 
-  cacheModule.set(`arnsResolution_${domain}`, null, "arns");
-  return null;
+    console.log(`No accessible gateway found for ${domain}`);
+    cacheModule.set(`arnsResolution_${domain}`, null, "arns");
+    return null;
+  } catch (error) {
+    console.error(`Error resolving ArNS domain ${domain}:`, error);
+    return null;
+  }
 };
