@@ -54,7 +54,7 @@ export function useWallet() {
     isWalletConnected: computed(() => state.isConnected),
     walletAddress: computed(() => state.address),
     processId: computed(() => state.processId),
-    walletConnection,
+    walletManager,
     connectWallet,
     disconnectWallet,
     reconnectFromCache,

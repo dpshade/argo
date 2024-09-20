@@ -53,35 +53,10 @@ export function useBangs() {
         "Data fetched and updated successfully for wallet:",
         walletManager.address,
       );
-
-      // Perform dry run update less frequently
-      if (
-        forceUpdate ||
-        !lastFetchTime.value ||
-        now - lastFetchTime.value > CACHE_DURATION * 2
-      ) {
-        await dryRunUpdate();
-      }
     } catch (error) {
       console.error("Error fetching data:", error);
     }
   }, 1000);
-
-  async function dryRunUpdate() {
-    if (!walletConnection.value) {
-      console.warn("Wallet not connected");
-      return;
-    }
-
-    try {
-      const result = await getAllBangs(walletConnection.value, true);
-      updateUIData(result);
-      cacheModule.set(getCacheKey(), result, "bangs");
-      console.log("Dry run update completed for wallet:", walletAddress.value);
-    } catch (error) {
-      console.error("Error during dry run update:", error);
-    }
-  }
 
   function updateUIData(data) {
     bangs.value = data.Bangs || [];
@@ -91,7 +66,7 @@ export function useBangs() {
   }
 
   async function updateBangs(newBangs) {
-    if (!walletConnection.value) {
+    if (!walletManager.address) {
       console.warn("Wallet not connected");
       return;
     }
@@ -99,16 +74,11 @@ export function useBangs() {
     try {
       for (const bang of newBangs) {
         if (bang.isNew) {
-          await createBang(walletConnection.value, bang.name, bang.url);
+          await createBang(walletManager, bang.name, bang.url);
         } else if (bang.isDeleted) {
-          await deleteBang(walletConnection.value, bang.name);
+          await deleteBang(walletManager, bang.name);
         } else if (bang.isUpdated) {
-          await updateBang(
-            walletConnection.value,
-            bang.oldName,
-            bang.name,
-            bang.url,
-          );
+          await updateBang(walletManager, bang.oldName, bang.name, bang.url);
         }
       }
 
@@ -120,13 +90,13 @@ export function useBangs() {
   }
 
   async function updateFallback(newFallback) {
-    if (!walletConnection.value) {
+    if (!walletManager.address) {
       console.warn("Wallet not connected");
       return;
     }
 
     try {
-      await updateFallbackSearchEngine(walletConnection.value, newFallback);
+      await updateFallbackSearchEngine(walletManager, newFallback);
       fallbackSearchEngine.value = newFallback;
       const cachedData = cacheModule.get(getCacheKey(), "bangs");
       if (cachedData) {
@@ -140,13 +110,13 @@ export function useBangs() {
   }
 
   async function updateExplorer(newExplorer) {
-    if (!walletConnection.value) {
+    if (!walletManager.address) {
       console.warn("Wallet not connected");
       return;
     }
 
     try {
-      await updateArweaveExplorer(walletConnection.value, newExplorer);
+      await updateArweaveExplorer(walletManager, newExplorer);
       arweaveExplorer.value = newExplorer;
       const cachedData = cacheModule.get(getCacheKey(), "bangs");
       if (cachedData) {

@@ -17,8 +17,9 @@ const props = defineProps([
     "bangs",
     "fallbackSearchEngine",
     "arweaveExplorer",
-    "walletConnection",
+    "walletManager",
 ]);
+
 const emit = defineEmits([
     "update:bangs",
     "update:fallbackSearchEngine",
@@ -78,7 +79,7 @@ async function addBang() {
     if (newBang.value.name && newBang.value.url) {
         try {
             const result = await createBang(
-                props.walletConnection,
+                props.walletManager,
                 newBang.value.name,
                 newBang.value.url,
             );
@@ -104,7 +105,7 @@ async function addBang() {
 
 async function removeBang(bang) {
     try {
-        await deleteBang(props.walletConnection, bang.name);
+        await deleteBang(props.walletManager, bang.name);
         bangs.value = bangs.value.filter((b) => b.name !== bang.name);
         updateCachedBangs();
         emit("update:bangs", bangs.value);
@@ -133,7 +134,7 @@ async function saveBangChanges(bang) {
     try {
         const oldName = bang.originalName || bang.name;
         const result = await updateBang(
-            props.walletConnection,
+            props.walletManager,
             oldName,
             bang.name,
             bang.url,
@@ -147,7 +148,6 @@ async function saveBangChanges(bang) {
         emit("force-update");
     } catch (error) {
         console.error("Error saving bang:", error);
-        alert(`Failed to save bang: ${error.message}`);
     } finally {
         bang.isSaving = false;
     }
@@ -159,7 +159,7 @@ async function saveDefault(key) {
             key === "fallbackSearchEngine"
                 ? updateFallbackSearchEngine
                 : updateArweaveExplorer;
-        await updateFunction(props.walletConnection, defaults.value[key]);
+        await updateFunction(props.walletManager, defaults.value[key]);
         emit(`update:${key}`, defaults.value[key]);
         emit("force-update");
     } catch (error) {
@@ -203,13 +203,13 @@ function updateCachedBangs() {
                         required
                         :disabled="bang.isSaving"
                     />
-                    <div
-                        class="formatted-input"
-                        contenteditable="true"
-                        @input="updateBangUrl(bang, $event.target.innerText)"
-                        :innerHTML="formatInputValue(bang.url)"
+                    <input
+                        :value="bang.url"
+                        @input="updateBangUrl(bang, $event.target.value)"
                         placeholder="URL (use %s for query)"
-                    ></div>
+                        required
+                        :disabled="bang.isSaving"
+                    />
                     <div class="bang-actions">
                         <button
                             @click="saveBangChanges(bang)"

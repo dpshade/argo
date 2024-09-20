@@ -24,7 +24,6 @@ const {
     isWalletConnected,
     walletAddress,
     processId,
-    walletConnection,
     connectWallet,
     disconnectWallet,
     reconnectFromCache,
@@ -55,7 +54,7 @@ provide("isWalletConnected", isWalletConnected);
 provide("wallet", {
     isWalletConnected,
     walletAddress,
-    walletConnection,
+    walletManager,
     processId,
     connectWallet,
     disconnectWallet,
@@ -134,12 +133,6 @@ const debouncedFetchAndLoadData = debounce(async () => {
 
 onMounted(async () => {
     await handleUrlParams();
-});
-
-watchEffect(() => {
-    if (isWalletConnected && processId) {
-        debouncedFetchAndLoadData();
-    }
 });
 
 watch(isWalletConnected, (newValue) => {
@@ -227,12 +220,13 @@ watch(isWalletConnected, (newValue) => {
                 :bangs="bangs"
                 :fallbackSearchEngine="fallbackSearchEngine"
                 :arweaveExplorer="arweaveExplorer"
-                :walletConnection="walletConnection"
+                :walletManager="walletManager"
                 @update:bangs="updateBangs"
                 @update:fallbackSearchEngine="updateFallback"
                 @update:arweaveExplorer="updateExplorer"
-                @force-update="() => fetchAndLoadData(walletConnection, true)"
+                @force-update="() => fetchAndLoadData(true)"
             />
+
             <!-- <div v-if="searchResult" class="result fade-out">
                 {{ searchResult }}
             </div> -->

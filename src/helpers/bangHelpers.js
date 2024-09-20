@@ -1,21 +1,21 @@
 import { cacheModule } from "./cacheModule";
 
-export async function createBang(walletConnection, name, url) {
-  if (!walletConnection) {
+export async function createBang(walletManager, name, url) {
+  if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
 
   url = ensureHttps(url);
 
   console.log(`Creating bang: ${name} with URL: ${url}`);
-  const result = await walletConnection.sendMessageToArweave(
+  const result = await walletManager.sendMessageToArweave(
     [
       { name: "Action", value: "CreateBang" },
       { name: "Name", value: name },
       { name: "URL", value: url },
     ],
     "",
-    walletConnection.processId,
+    walletManager.processId,
   );
   console.log("Create bang result:", result);
 
@@ -73,8 +73,8 @@ export async function getAllBangs(walletManager, dryRun = true) {
   };
 }
 
-export async function updateBang(walletConnection, oldName, newName, url) {
-  if (!walletConnection) {
+export async function updateBang(walletManager, oldName, newName, url) {
+  if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
 
@@ -83,7 +83,7 @@ export async function updateBang(walletConnection, oldName, newName, url) {
   url = ensureHttps(url);
 
   try {
-    const result = await walletConnection.sendMessageToArweave(
+    const result = await walletManager.sendMessageToArweave(
       [
         { name: "Action", value: "UpdateBang" },
         { name: "OldName", value: oldName },
@@ -91,7 +91,7 @@ export async function updateBang(walletConnection, oldName, newName, url) {
         { name: "URL", value: url },
       ],
       "",
-      walletConnection.processId,
+      walletManager.processId,
     );
 
     console.log("Update bang result:", result);
@@ -114,18 +114,18 @@ export async function updateBang(walletConnection, oldName, newName, url) {
   }
 }
 
-export async function deleteBang(walletConnection, name) {
-  if (!walletConnection) {
+export async function deleteBang(walletManager, name) {
+  if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
   console.log(`Deleting bang: ${name}`);
-  const result = await walletConnection.sendMessageToArweave(
+  const result = await walletManager.sendMessageToArweave(
     [
       { name: "Action", value: "DeleteBang" },
       { name: "Name", value: name },
     ],
     "",
-    walletConnection.processId,
+    walletManager.processId,
   );
   console.log("Delete bang result:", result);
 
@@ -136,37 +136,37 @@ export async function deleteBang(walletConnection, name) {
   return result;
 }
 
-export async function updateFallbackSearchEngine(walletConnection, url) {
-  if (!walletConnection) {
+export async function updateFallbackSearchEngine(walletManager, url) {
+  if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
 
   url = ensureHttps(url);
 
-  return await walletConnection.sendMessageToArweave(
+  return await walletManager.sendMessageToArweave(
     [
       { name: "Action", value: "UpdateFallbackSearchEngine" },
       { name: "URL", value: url },
     ],
     "",
-    walletConnection.processId,
+    walletManager.processId,
   );
 }
 
-export async function updateArweaveExplorer(walletConnection, url) {
-  if (!walletConnection) {
+export async function updateArweaveExplorer(walletManager, url) {
+  if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
 
   url = ensureHttps(url);
 
-  return await walletConnection.sendMessageToArweave(
+  return await walletManager.sendMessageToArweave(
     [
       { name: "Action", value: "UpdateArweaveExplorer" },
       { name: "URL", value: url },
     ],
     "",
-    walletConnection.processId,
+    walletManager.processId,
   );
 }
 
