@@ -85,7 +85,7 @@ button:hover {
 
 @media screen and (max-width: 768px) {
     .search-bar {
-        margin-top: 10px;
+        width: 95%;
     }
 
     .input-wrapper {

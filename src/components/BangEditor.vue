@@ -374,6 +374,10 @@ input {
     display: flex;
 }
 
+.bang-actions .save-button {
+    margin-top: 2px;
+}
+
 .bang-actions .icon-button {
     align-items: center;
     border: none;
@@ -524,38 +528,40 @@ input:disabled {
 }
 
 @media screen and (max-width: 767px) {
+    .bang-editor {
+        margin-top: 4rem;
+    }
+
     h2,
     h3 {
         font-size: 20px;
     }
 
     .bang-form {
-        flex-direction: row;
+        flex-direction: column;
         height: auto;
     }
 
-    .bang-form input,
-    .bang-actions {
+    .bang-form input {
         width: 100%;
     }
 
     .bang-form input:not(:last-child) {
-        width: 15%;
-        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: center;
+        text-align: center;
+        width: 90%;
     }
 
     .bang-actions {
-        display: flex;
-    }
-
-    .bang-actions .icon-button {
-        width: 50%;
+        justify-content: center;
     }
 
     .add-bang-form,
     .default-form {
         flex-direction: column;
         gap: 0;
+        height: auto;
     }
 
     .add-bang-form input,
@@ -572,11 +578,13 @@ input:disabled {
 
     .add-bang-form input:not(:last-child),
     .default-form input:not(:last-child) {
+        width: 100%;
         border-bottom: 1px solid var(--border-color);
     }
 
     .add-bang-form .full-width-button,
     .default-form .full-width-button {
+        width: 100%;
         border-radius: 0 0 8px 8px;
     }
 }

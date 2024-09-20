@@ -208,7 +208,7 @@ watch(isWalletConnected, (newValue) => {
                     @walletDisconnected="onWalletDisconnected"
                 />
             </div>
-            <h1>tinyNav</h1>
+            <h1 class="title">tinyNav</h1>
             <SearchBar
                 v-if="currentView === 'search'"
                 @search="
@@ -435,8 +435,13 @@ button:hover {
         -webkit-text-size-adjust: 100%;
     }
 
+    .title {
+        display: none;
+    }
+
     .container {
-        padding: 20px 10px;
+        overflow-x: hidden;
+        padding: 0;
     }
 
     h1 {
