@@ -168,6 +168,14 @@ async function saveDefault(key) {
     }
 }
 
+const formatInputValue = (value) => {
+    if (!value) return "";
+    return value.replace(
+        /%s/g,
+        '<span style="font-weight: bold; color: var(--button-hover-bg);">%s</span>',
+    );
+};
+
 function updateCachedBangs() {
     if (cachedBangsData.value) {
         cachedBangsData.value.Bangs = bangs.value.map(({ name, url }) => ({
@@ -195,13 +203,13 @@ function updateCachedBangs() {
                         required
                         :disabled="bang.isSaving"
                     />
-                    <input
-                        :value="bang.url"
-                        @input="updateBangUrl(bang, $event.target.value)"
+                    <div
+                        class="formatted-input"
+                        contenteditable="true"
+                        @input="updateBangUrl(bang, $event.target.innerText)"
+                        :innerHTML="formatInputValue(bang.url)"
                         placeholder="URL (use %s for query)"
-                        required
-                        :disabled="bang.isSaving"
-                    />
+                    ></div>
                     <div class="bang-actions">
                         <button
                             @click="saveBangChanges(bang)"
@@ -368,6 +376,42 @@ input {
 .bang-form input:nth-child(2) {
     width: 70%;
     font-size: 14px;
+}
+
+/* .highlighted-input {
+    font-weight: bold;
+    font-style: italic;
+    color: var(--button-hover-bg);
+} */
+
+.formatted-input {
+    padding: 16px;
+    border: none;
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    font-size: 14px;
+    outline: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.formatted-input[contenteditable="true"]:empty:before {
+    content: attr(placeholder);
+    color: #888;
+}
+
+.formatted-input strong {
+    color: var(--button-hover-bg);
+}
+
+.bang-form .formatted-input {
+    width: 70%;
+}
+
+.add-bang-form .formatted-input,
+.default-form .formatted-input {
+    flex-grow: 1;
 }
 
 .bang-actions {
