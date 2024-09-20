@@ -19,45 +19,46 @@ export async function handleSearch(
 
   const words = trimmedQuery.split(/\s+/);
 
-  // Check bangs
+  // Check all bangs first
   if (bangs && bangs.length > 0) {
-    const bang = bangs.find(
+    // Check for exact match with first word
+    const exactBang = bangs.find(
       (b) => words[0].toLowerCase() === b.name.toLowerCase(),
     );
-
-    if (bang) {
+    if (exactBang) {
       const searchTerm = words.slice(1).join(" ");
-      const redirectUrl = bang.url.replace(
+      const redirectUrl = exactBang.url.replace(
         "%s",
         encodeURIComponent(searchTerm),
       );
-      cacheModule.set(bang.name, { url: bang.url }, "redirect");
+      cacheModule.set(exactBang.name, { url: exactBang.url }, "redirect");
       return `Redirecting to: ${redirectUrl}`;
-    } else {
-      for (let i = 0; i < words.length; i++) {
-        const potentialBang = bangs.find(
-          (b) => words[i].toLowerCase() === b.name.toLowerCase(),
+    }
+
+    // Check for bang anywhere in the query
+    for (let i = 0; i < words.length; i++) {
+      const potentialBang = bangs.find(
+        (b) => words[i].toLowerCase() === b.name.toLowerCase(),
+      );
+      if (potentialBang) {
+        const searchTerm = [...words.slice(0, i), ...words.slice(i + 1)].join(
+          " ",
         );
-        if (potentialBang) {
-          const searchTerm = [...words.slice(0, i), ...words.slice(i + 1)].join(
-            " ",
-          );
-          const redirectUrl = potentialBang.url.replace(
-            "%s",
-            encodeURIComponent(searchTerm),
-          );
-          cacheModule.set(
-            potentialBang.name,
-            { url: potentialBang.url },
-            "redirect",
-          );
-          return `Redirecting to: ${redirectUrl}`;
-        }
+        const redirectUrl = potentialBang.url.replace(
+          "%s",
+          encodeURIComponent(searchTerm),
+        );
+        cacheModule.set(
+          potentialBang.name,
+          { url: potentialBang.url },
+          "redirect",
+        );
+        return `Redirecting to: ${redirectUrl}`;
       }
     }
   }
 
-  // Check for ArNS domain
+  // Check for ArNS domain only if no bangs matched
   if (!trimmedQuery.includes(" ") && /^[a-zA-Z0-9_-]+$/.test(trimmedQuery)) {
     const isArNS = await checkArNSRecord(trimmedQuery);
     if (isArNS) {
@@ -80,12 +81,9 @@ export async function handleSearch(
   }
 
   // Use fallback search engine
-  const searchUrl = (
-    fallbackSearchEngine.startsWith("https://www.")
-      ? fallbackSearchEngine
-      : "https://www." +
-        fallbackSearchEngine.replace(/^https?:\/\/(www\.)?/, "")
-  ).replace("%s", encodeURIComponent(trimmedQuery));
-
+  const searchUrl = fallbackSearchEngine.replace(
+    "%s",
+    encodeURIComponent(trimmedQuery),
+  );
   return `Redirecting to: ${searchUrl}`;
 }

@@ -27,7 +27,13 @@ const emit = defineEmits([
 ]);
 
 const cachedBangsData = inject("cachedBangsData");
-const bangs = ref([]);
+const bangs = ref(
+    props.bangs.map((bang) => ({
+        ...bang,
+        originalName: bang.name,
+        isSaving: false,
+    })),
+);
 const newBang = ref({ name: "", url: "" });
 const defaults = ref({
     fallbackSearchEngine:
@@ -35,8 +41,6 @@ const defaults = ref({
     arweaveExplorer:
         props.arweaveExplorer || HARDCODED_DEFAULTS.arweaveExplorer,
 });
-
-const editingBang = ref(null);
 
 const sortedBangs = computed(() =>
     [...bangs.value].sort((a, b) => a.name.localeCompare(b.name)),
@@ -79,7 +83,11 @@ async function addBang() {
                 newBang.value.url,
             );
             if (result && !result.Error) {
-                bangs.value.push({ ...newBang.value });
+                bangs.value.push({
+                    ...newBang.value,
+                    originalName: newBang.value.name,
+                    isSaving: false,
+                });
                 updateCachedBangs();
                 newBang.value = { name: "", url: "" };
                 emit("update:bangs", bangs.value);
@@ -90,38 +98,6 @@ async function addBang() {
         } catch (error) {
             console.error("Error adding bang:", error);
             alert(`Failed to add bang: ${error.message}`);
-        }
-    }
-}
-
-async function saveBang() {
-    if (editingBang.value) {
-        try {
-            const result = await updateBang(
-                props.walletConnection,
-                editingBang.value.name,
-                editingBang.value.editName,
-                editingBang.value.editUrl,
-            );
-            if (result.Error) throw new Error(result.Error);
-
-            const index = bangs.value.findIndex(
-                (b) => b.name === editingBang.value.name,
-            );
-            if (index !== -1) {
-                bangs.value[index] = {
-                    name: editingBang.value.editName,
-                    url: editingBang.value.editUrl,
-                };
-            }
-
-            updateCachedBangs();
-            emit("update:bangs", bangs.value);
-            emit("force-update");
-            closeEditModal();
-        } catch (error) {
-            console.error("Error saving bang:", error);
-            alert(`Failed to save bang: ${error.message}`);
         }
     }
 }
@@ -139,16 +115,42 @@ async function removeBang(bang) {
     }
 }
 
-function openEditModal(bang) {
-    editingBang.value = {
-        ...bang,
-        editName: bang.name,
-        editUrl: bang.url,
-    };
+function updateBangName(bang, newName) {
+    if (!bang.originalName) {
+        bang.originalName = bang.name;
+    }
+    bang.name = newName;
 }
 
-function closeEditModal() {
-    editingBang.value = null;
+function updateBangUrl(bang, newUrl) {
+    bang.url = newUrl;
+}
+
+async function saveBangChanges(bang) {
+    if (bang.isSaving) return;
+
+    bang.isSaving = true;
+    try {
+        const oldName = bang.originalName || bang.name;
+        const result = await updateBang(
+            props.walletConnection,
+            oldName,
+            bang.name,
+            bang.url,
+        );
+        if (result.Error) throw new Error(result.Error);
+
+        bang.originalName = bang.name;
+
+        updateCachedBangs();
+        emit("update:bangs", bangs.value);
+        emit("force-update");
+    } catch (error) {
+        console.error("Error saving bang:", error);
+        alert(`Failed to save bang: ${error.message}`);
+    } finally {
+        bang.isSaving = false;
+    }
 }
 
 async function saveDefault(key) {
@@ -175,48 +177,87 @@ function updateCachedBangs() {
     }
 }
 </script>
+
 <template>
     <div class="bang-editor">
         <h2>Edit Bangs</h2>
         <ul class="bang-list">
-            <li v-for="bang in sortedBangs" :key="bang.name">
-                <div class="bang-info">
-                    <span class="bang-name">{{ bang.name }}</span>
-                    <span class="bang-url">{{ formatUrl(bang.url) }}</span>
-                </div>
-                <div class="bang-actions">
-                    <button
-                        @click="openEditModal(bang)"
-                        class="icon-button edit-button"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            width="24"
-                            height="24"
+            <li
+                v-for="bang in sortedBangs"
+                :key="bang.originalName || bang.name"
+                class="bang-item"
+            >
+                <div class="bang-form">
+                    <input
+                        :value="bang.name"
+                        @input="updateBangName(bang, $event.target.value)"
+                        placeholder="Bang name"
+                        required
+                        :disabled="bang.isSaving"
+                    />
+                    <input
+                        :value="bang.url"
+                        @input="updateBangUrl(bang, $event.target.value)"
+                        placeholder="URL (use %s for query)"
+                        required
+                        :disabled="bang.isSaving"
+                    />
+                    <div class="bang-actions">
+                        <button
+                            @click="saveBangChanges(bang)"
+                            class="icon-button save-button"
+                            :title="
+                                bang.isSaving ? 'Saving...' : 'Save changes'
+                            "
+                            :disabled="bang.isSaving"
                         >
-                            <path fill="none" d="M0 0h24v24H0z" />
-                            <path
-                                d="M15.728 9.686l-1.414-1.414L5 17.586V19h1.414l9.314-9.314zm1.414-1.414l1.414-1.414-1.414-1.414-1.414 1.414 1.414 1.414zM7.242 21H3v-4.243L16.435 3.322a1 1 0 0 1 1.414 0l2.829 2.829a1 1 0 0 1 0 1.414L7.243 21z"
-                            />
-                        </svg>
-                    </button>
-                    <button
-                        @click="removeBang(bang)"
-                        class="icon-button delete-button"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            width="24"
-                            height="24"
+                            <template v-if="!bang.isSaving">
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    width="24"
+                                    height="24"
+                                >
+                                    <path fill="none" d="M0 0h24v24H0z" />
+                                    <path
+                                        d="M7 19v-6h10v6h2V7.828L16.172 5H5v14h2zM4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm5 12v4h6v-4H9z"
+                                    />
+                                </svg>
+                            </template>
+                            <template v-else>
+                                <svg
+                                    class="spinner"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    width="24"
+                                    height="24"
+                                >
+                                    <path fill="none" d="M0 0h24v24H0z" />
+                                    <path
+                                        d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12h2a8 8 0 1 0 8-8V2z"
+                                    />
+                                </svg>
+                            </template>
+                        </button>
+                        <button
+                            @click="removeBang(bang)"
+                            class="icon-button delete-button"
+                            title="Delete bang"
+                            :disabled="bang.isSaving"
                         >
-                            <path fill="none" d="M0 0h24v24H0z" />
-                            <path
-                                d="M17 6h5v2h-2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8H2V6h5V3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3zm1 2H6v12h12V8zm-9 3h2v6H9v-6zm4 0h2v6h-2v-6zM9 4v2h6V4H9z"
-                            />
-                        </svg>
-                    </button>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                width="24"
+                                height="24"
+                            >
+                                <path fill="none" d="M0 0h24v24H0z" />
+                                <path
+                                    d="M17 6h5v2h-2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8H2V6h5V3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3zm1 2H6v12h12V8zm-9 3h2v6H9v-6zm4 0h2v6h-2v-6zM9 4v2h6V4H9z"
+                                />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </li>
         </ul>
@@ -250,25 +291,6 @@ function updateCachedBangs() {
                     <button type="submit" class="full-width-button">
                         Save
                     </button>
-                </form>
-            </div>
-        </div>
-
-        <!-- Edit Modal -->
-        <div v-if="editingBang" class="modal-overlay" @click="closeEditModal">
-            <div class="modal-content" @click.stop>
-                <form @submit.prevent="saveBang" class="edit-bang-form">
-                    <input
-                        v-model="editingBang.editName"
-                        placeholder="Bang name"
-                        required
-                    />
-                    <input
-                        v-model="editingBang.editUrl"
-                        placeholder="URL (use %s for query)"
-                        required
-                    />
-                    <button type="submit" class="save-button">Save</button>
                 </form>
             </div>
         </div>
@@ -308,7 +330,7 @@ input {
 }
 
 .bang-list li {
-    padding: 12px 16px;
+    padding: 0 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -319,34 +341,73 @@ input {
     border-bottom: none;
 }
 
-.bang-info {
-    flex-grow: 1;
+.bang-form {
+    display: flex;
+    background-color: var(--input-bg);
+    border-radius: 8px;
     overflow: hidden;
+    width: 100%;
+    height: 48px;
 }
 
-.bang-name,
-.bang-url {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.bang-name {
-    font-weight: bold;
-    color: var(--header-text-color);
-    font-size: 16px;
-    margin-bottom: 8px;
-}
-
-.bang-url {
+.bang-form input {
+    padding: 16px;
+    border: none;
+    background-color: var(--input-bg);
     color: var(--text-color);
+    font-size: 16px;
+}
+
+.bang-form input:first-child {
+    width: 15%;
+    font-weight: bold;
+    color: var(--button-hover-bg);
+    border-right: 1px solid var(--border-color);
+}
+
+.bang-form input:nth-child(2) {
+    width: 70%;
     font-size: 14px;
 }
 
 .bang-actions {
     display: flex;
-    gap: 8px;
+}
+
+.bang-actions .icon-button {
+    align-items: center;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.bang-actions .icon-button svg {
+    width: 20px;
+    height: 20px;
+    fill: grey;
+}
+
+.spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.icon-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
 }
 
 .icon-button {
@@ -373,7 +434,7 @@ input {
 }
 
 .add-bang-form,
-.edit-bang-form {
+.default-form {
     display: flex;
     background-color: var(--input-bg);
     border-radius: 8px;
@@ -382,7 +443,7 @@ input {
 }
 
 .add-bang-form input,
-.edit-bang-form input {
+.default-form input {
     padding: 16px;
     border: none;
     background-color: var(--input-bg);
@@ -390,27 +451,20 @@ input {
     font-size: 16px;
 }
 
-.add-bang-form input:first-child,
-.edit-bang-form input:first-child {
+.add-bang-form input:first-child {
     width: 15%;
     font-weight: bold;
     color: var(--button-hover-bg);
     border-right: 1px solid var(--border-color);
 }
 
-.add-bang-form input:nth-child(2),
-.edit-bang-form input:nth-child(2) {
+.add-bang-form input:nth-child(2) {
     width: 70%;
     font-size: 14px;
 }
 
-/*
-.add-bang-form input:not(:last-child),
-.edit-bang-form input:not(:last-child) {
-} */
-
 .add-bang-form .full-width-button,
-.edit-bang-form .save-button {
+.default-form .full-width-button {
     width: 15%;
     padding: 16px;
     background-color: var(--button-bg);
@@ -424,7 +478,7 @@ input {
 }
 
 .add-bang-form .full-width-button:hover,
-.edit-bang-form .save-button:hover {
+.default-form .full-width-button:hover {
     background-color: var(--button-hover-bg);
 }
 
@@ -457,7 +511,6 @@ input {
 .default-form input {
     flex-grow: 1;
     padding: 12px;
-    /* border: 1px solid var(--border-color); */
     border: none;
     background-color: var(--input-bg);
     color: var(--text-color);
@@ -470,97 +523,61 @@ input {
     border-radius: 0 6px 6px 0;
 }
 
-/* Modal Styles */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-    backdrop-filter: blur(5px);
-}
-
-.modal-content {
-    background-color: var(--container-bg);
-    border-radius: 8px;
-    width: 60%;
-    box-shadow: 0 0 30px 15px rgba(var(--accent-color-rgb), 0.3);
-    overflow: hidden;
-}
-
 @media screen and (max-width: 767px) {
     h2,
     h3 {
         font-size: 20px;
     }
 
+    .bang-form {
+        flex-direction: row;
+        height: auto;
+    }
+
+    .bang-form input,
+    .bang-actions {
+        width: 100%;
+    }
+
+    .bang-form input:not(:last-child) {
+        width: 15%;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .bang-actions {
+        display: flex;
+    }
+
+    .bang-actions .icon-button {
+        width: 50%;
+    }
+
     .add-bang-form,
-    .edit-bang-form,
     .default-form {
         flex-direction: column;
         gap: 0;
     }
 
     .add-bang-form input,
-    .edit-bang-form input,
     .default-form input,
     .add-bang-form .full-width-button,
-    .edit-bang-form .save-button,
     .default-form .full-width-button {
         border-radius: 0;
     }
 
     .add-bang-form input:first-child,
-    .edit-bang-form input:first-child,
     .default-form input:first-child {
         border-radius: 8px 8px 0 0;
     }
 
     .add-bang-form input:not(:last-child),
-    .edit-bang-form input:not(:last-child),
     .default-form input:not(:last-child) {
         border-bottom: 1px solid var(--border-color);
     }
 
     .add-bang-form .full-width-button,
-    .edit-bang-form .save-button,
     .default-form .full-width-button {
         border-radius: 0 0 8px 8px;
-    }
-
-    .modal-content {
-        width: 95%;
-        max-width: none;
-        border-radius: 8px;
-    }
-
-    .edit-bang-form {
-        flex-direction: column;
-        gap: 8px;
-        background-color: transparent;
-    }
-
-    .edit-bang-form input,
-    .edit-bang-form .save-button {
-        width: 100% !important;
-        border-radius: 8px;
-    }
-
-    .edit-bang-form input {
-        border: 1px solid var(--border-color);
-    }
-
-    .edit-bang-form input:not(:last-child) {
-        border-right: none;
-    }
-
-    .edit-bang-form .save-button {
-        margin-top: 8px;
     }
 }
 </style>

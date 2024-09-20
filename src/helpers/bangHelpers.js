@@ -5,7 +5,7 @@ export async function createBang(walletConnection, name, url) {
     throw new Error("Wallet not connected");
   }
 
-  url = ensureHttpsWww(url);
+  url = ensureHttps(url);
 
   console.log(`Creating bang: ${name} with URL: ${url}`);
   const result = await walletConnection.sendMessageToArweave(
@@ -80,7 +80,7 @@ export async function updateBang(walletConnection, oldName, newName, url) {
 
   console.log(`Updating bang: ${oldName} to ${newName} with URL: ${url}`);
 
-  url = ensureHttpsWww(url);
+  url = ensureHttps(url);
 
   try {
     const result = await walletConnection.sendMessageToArweave(
@@ -97,7 +97,9 @@ export async function updateBang(walletConnection, oldName, newName, url) {
     console.log("Update bang result:", result);
 
     if (result.success) {
-      cacheModule.invalidate(oldName, "redirect");
+      if (oldName !== newName) {
+        cacheModule.invalidate(oldName, "redirect");
+      }
       cacheModule.set(newName, { url }, "redirect");
     }
 
@@ -139,7 +141,7 @@ export async function updateFallbackSearchEngine(walletConnection, url) {
     throw new Error("Wallet not connected");
   }
 
-  url = ensureHttpsWww(url);
+  url = ensureHttps(url);
 
   return await walletConnection.sendMessageToArweave(
     [
@@ -156,7 +158,7 @@ export async function updateArweaveExplorer(walletConnection, url) {
     throw new Error("Wallet not connected");
   }
 
-  url = ensureHttpsWww(url);
+  url = ensureHttps(url);
 
   return await walletConnection.sendMessageToArweave(
     [
@@ -168,11 +170,9 @@ export async function updateArweaveExplorer(walletConnection, url) {
   );
 }
 
-function ensureHttpsWww(url) {
+function ensureHttps(url) {
   if (!/^https?:\/\//i.test(url)) {
-    url = "https://www." + url;
-  } else if (!/^https?:\/\/www\./i.test(url)) {
-    url = url.replace(/^(https?:\/\/)/, "$1www.");
+    return `https://${url}`;
   }
   return url;
 }

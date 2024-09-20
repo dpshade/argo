@@ -232,9 +232,9 @@ watch(isWalletConnected, (newValue) => {
                 @update:arweaveExplorer="updateExplorer"
                 @force-update="() => fetchAndLoadData(walletConnection, true)"
             />
-            <div v-if="searchResult" class="result fade-out">
+            <!-- <div v-if="searchResult" class="result fade-out">
                 {{ searchResult }}
-            </div>
+            </div> -->
         </div>
         <KeyboardShortcuts />
     </template>
