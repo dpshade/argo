@@ -26,8 +26,8 @@ export async function createBang(walletConnection, name, url) {
   return result;
 }
 
-export async function getAllBangs(walletConnection, dryRun = true) {
-  if (!walletConnection) {
+export async function getAllBangs(walletManager, dryRun = true) {
+  if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
 
@@ -39,10 +39,10 @@ export async function getAllBangs(walletConnection, dryRun = true) {
 
   const action = dryRun ? "dryRunArweave" : "sendMessageToArweave";
 
-  const result = await walletConnection[action](
+  const result = await walletManager[action](
     [{ name: "Action", value: "ListBangs" }],
     "",
-    walletConnection.processId,
+    walletManager.processId,
   );
 
   console.log("Get all bangs and defaults result:", result);

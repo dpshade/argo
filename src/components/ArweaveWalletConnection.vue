@@ -1,17 +1,20 @@
 <script>
 import { ref, computed, onMounted } from "vue";
-import { ArweaveWalletConnection as AWC } from "../helpers/arweaveWallet";
+import { useWallet } from "../composables/useWallet";
 import { store } from "../store";
-
-const walletAddress = ref(null);
-const showModal = ref(false);
-const isConnecting = ref(false);
 
 export default {
     name: "ArweaveWalletConnection",
     emits: ["walletConnected", "walletDisconnected"],
     setup(props, { emit }) {
-        const walletAddress = ref(null);
+        const {
+            isWalletConnected,
+            walletAddress,
+            connectWallet,
+            disconnectWallet,
+            reconnectFromCache,
+        } = useWallet();
+
         const showModal = ref(false);
         const isConnecting = ref(false);
 
@@ -71,19 +74,14 @@ export default {
         });
 
         const buttonText = computed(() => {
-            return walletAddress.value ? "Disconnect" : "Connect Wallet";
+            return isWalletConnected.value ? "Disconnect" : "Connect Wallet";
         });
 
         const openModal = async () => {
-            if (walletAddress.value) {
-                disconnectWallet();
+            if (isWalletConnected.value) {
+                disconnectWalletHandler();
             } else {
-                try {
-                    await preloadImages();
-                    showModal.value = true;
-                } catch (error) {
-                    console.error("Failed to load images:", error);
-                }
+                showModal.value = true;
             }
         };
 
@@ -97,16 +95,14 @@ export default {
             }
         };
 
-        const connectWallet = async (method) => {
+        const connectWalletHandler = async (method) => {
             if (isConnecting.value) return;
             isConnecting.value = true;
-
             closeModal();
 
             try {
-                const address = await AWC.connect(method);
-                walletAddress.value = address;
-                emit("walletConnected", address); // Emit the event here
+                const address = await connectWallet(method);
+                emit("walletConnected", method, address);
             } catch (error) {
                 console.error("Wallet connection failed:", error);
                 alert("Failed to connect wallet. Please try again.");
@@ -115,43 +111,20 @@ export default {
             }
         };
 
-        const disconnectWallet = async () => {
+        const disconnectWalletHandler = async () => {
             try {
-                await AWC.disconnect();
-                walletAddress.value = null;
-                emit("walletDisconnected"); // Emit the event here
+                await disconnectWallet();
+                emit("walletDisconnected");
             } catch (error) {
                 console.error("Wallet disconnection failed:", error);
                 alert("Failed to disconnect wallet. Please try again.");
             }
         };
 
-        const preloadImages = async () => {
-            const imageSources = [
-                "https://arweave.net/aw_3Afim3oQU3JkaeWlh8DXQOcS8ZWt3niRpq-rrECA",
-                "https://arweave.net/33nBIUNlGK4MnWtJZQy9EzkVJaAd7WoydIKfkJoMvDs",
-                "https://arweave.net/qVms-k8Ox-eKFJN5QFvrPQvT9ryqQXaFcYbr-fJbgLY",
-                "https://arweave.net/tQUcL4wlNj_NED2VjUGUhfCTJ6pDN9P0e3CbnHo3vUE",
-            ];
-
-            const imagePromises = imageSources.map((src) => {
-                return new Promise((resolve, reject) => {
-                    const img = new Image();
-                    img.onload = resolve;
-                    img.onerror = reject;
-                    img.src = src;
-                });
-            });
-
-            return Promise.all(imagePromises);
-        };
-
         const checkCachedConnection = async () => {
-            const reconnected = await AWC.reconnectFromCache();
+            const reconnected = await reconnectFromCache();
             if (reconnected) {
-                walletAddress.value = AWC.address;
-                store.walletConnection = AWC;
-                emit("walletConnected", AWC.address);
+                emit("walletConnected", walletAddress.value);
             }
         };
 
@@ -160,6 +133,7 @@ export default {
         });
 
         return {
+            isWalletConnected,
             walletAddress,
             showModal,
             isMobile,
@@ -168,8 +142,8 @@ export default {
             openModal,
             closeModal,
             closeModalOnOutsideClick,
-            connectWallet,
-            disconnectWallet,
+            connectWallet: connectWalletHandler,
+            disconnectWallet: disconnectWalletHandler,
         };
     },
 };

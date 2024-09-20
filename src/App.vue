@@ -1,5 +1,6 @@
 <script setup>
 import { ref, provide, nextTick, onMounted, watch, watchEffect } from "vue";
+import { walletManager } from "./helpers/walletManager";
 import { useWallet } from "./composables/useWallet";
 import { useSearch } from "./composables/useSearch";
 import { useBangs } from "./composables/useBangs";
@@ -22,8 +23,8 @@ const isDataLoaded = ref(false);
 const {
     isWalletConnected,
     walletAddress,
-    walletConnection,
     processId,
+    walletConnection,
     connectWallet,
     disconnectWallet,
     reconnectFromCache,
@@ -38,7 +39,7 @@ const {
     updateExplorer,
     fetchAndLoadData,
     resetState,
-} = useBangs(walletAddress, walletConnection, processId);
+} = useBangs();
 
 const { searchResult, handleSearch } = useSearch();
 const {
@@ -92,10 +93,10 @@ function toggleView() {
         currentView.value === "search" ? "bangEditor" : "search";
 }
 
-async function onWalletConnected(address) {
-    console.log("Wallet connected:", address);
+async function onWalletConnected(method, address) {
+    console.log("Wallet connected:", address, "with method:", method);
+    store.isLoading = true;
     try {
-        await connectWallet(address);
         await fetchAndLoadData();
         if (searchBarRef.value) {
             searchBarRef.value.focusInput();
@@ -136,7 +137,7 @@ onMounted(async () => {
 });
 
 watchEffect(() => {
-    if (isWalletConnected.value && processId.value) {
+    if (isWalletConnected && processId) {
         debouncedFetchAndLoadData();
     }
 });

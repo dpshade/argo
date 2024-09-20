@@ -9,8 +9,9 @@ import {
   deleteBang,
 } from "../helpers/bangHelpers";
 import { cacheModule } from "../helpers/cacheModule";
+import { walletManager } from "../helpers/walletManager";
 
-export function useBangs(walletAddress, walletConnection, processId) {
+export function useBangs() {
   const bangs = ref([]);
   const fallbackSearchEngine = ref("https://google.com/search?q=%s");
   const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
@@ -18,11 +19,11 @@ export function useBangs(walletAddress, walletConnection, processId) {
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
   function getCacheKey() {
-    return `bangsData_${walletAddress.value}`;
+    return `bangsData_${walletManager.address}`;
   }
 
   const debouncedFetchAndLoadData = debounce(async (forceUpdate = false) => {
-    if (!walletConnection.value || !walletConnection.value.processId) {
+    if (!walletManager.address || !walletManager.processId) {
       console.warn(
         "Wallet not connected or process ID not set, skipping data fetch",
       );
@@ -38,19 +39,19 @@ export function useBangs(walletAddress, walletConnection, processId) {
       cachedData &&
       now - lastFetchTime.value < CACHE_DURATION
     ) {
-      console.log("Using cached data for wallet:", walletAddress.value);
+      console.log("Using cached data for wallet:", walletManager.address);
       updateUIData(cachedData);
       return;
     }
 
     try {
-      const result = await getAllBangs(walletConnection.value);
+      const result = await getAllBangs(walletManager);
       updateUIData(result);
       cacheModule.set(cacheKey, result, "bangs");
       lastFetchTime.value = now;
       console.log(
         "Data fetched and updated successfully for wallet:",
-        walletAddress.value,
+        walletManager.address,
       );
 
       // Perform dry run update less frequently
@@ -167,13 +168,16 @@ export function useBangs(walletAddress, walletConnection, processId) {
   }
 
   // Watch for wallet connection changes
-  watch([walletAddress, walletConnection], () => {
-    if (walletAddress.value && walletConnection.value) {
-      debouncedFetchAndLoadData();
-    } else {
-      resetState();
-    }
-  });
+  watch(
+    () => walletManager.address,
+    (newAddress) => {
+      if (newAddress) {
+        debouncedFetchAndLoadData();
+      } else {
+        resetState();
+      }
+    },
+  );
 
   return {
     bangs,
