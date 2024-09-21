@@ -79,7 +79,6 @@ async function addBang() {
     if (newBang.value.name && newBang.value.url) {
         try {
             const result = await createBang(
-                props.walletManager,
                 newBang.value.name,
                 newBang.value.url,
             );
@@ -105,7 +104,7 @@ async function addBang() {
 
 async function removeBang(bang) {
     try {
-        await deleteBang(props.walletManager, bang.name);
+        await deleteBang(bang.name);
         bangs.value = bangs.value.filter((b) => b.name !== bang.name);
         updateCachedBangs();
         emit("update:bangs", bangs.value);
@@ -133,12 +132,7 @@ async function saveBangChanges(bang) {
     bang.isSaving = true;
     try {
         const oldName = bang.originalName || bang.name;
-        const result = await updateBang(
-            props.walletManager,
-            oldName,
-            bang.name,
-            bang.url,
-        );
+        const result = await updateBang(oldName, bang.name, bang.url);
         if (result.Error) throw new Error(result.Error);
 
         bang.originalName = bang.name;
@@ -148,6 +142,7 @@ async function saveBangChanges(bang) {
         emit("force-update");
     } catch (error) {
         console.error("Error saving bang:", error);
+        alert(`Failed to update bang: ${error.message}`);
     } finally {
         bang.isSaving = false;
     }
@@ -159,8 +154,12 @@ async function saveDefault(key) {
             key === "fallbackSearchEngine"
                 ? updateFallbackSearchEngine
                 : updateArweaveExplorer;
-        await updateFunction(props.walletManager, defaults.value[key]);
-        emit(`update:${key}`, defaults.value[key]);
+
+        // Make sure we're passing the URL string, not the whole defaults object
+        const urlToUpdate = defaults.value[key];
+
+        await updateFunction(urlToUpdate);
+        emit(`update:${key}`, urlToUpdate);
         emit("force-update");
     } catch (error) {
         console.error(`Error updating ${key}:`, error);
@@ -168,13 +167,13 @@ async function saveDefault(key) {
     }
 }
 
-const formatInputValue = (value) => {
-    if (!value) return "";
-    return value.replace(
-        /%s/g,
-        '<span style="font-weight: bold; color: var(--button-hover-bg);">%s</span>',
-    );
-};
+// const formatInputValue = (value) => {
+//     if (!value) return "";
+//     return value.replace(
+//         /%s/g,
+//         '<span style="font-weight: bold; color: var(--button-hover-bg);">%s</span>',
+//     );
+// };
 
 function updateCachedBangs() {
     if (cachedBangsData.value) {

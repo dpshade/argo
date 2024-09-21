@@ -207,19 +207,7 @@ watch(isWalletConnected, (newValue) => {
             >
                 tinyNav
             </h1>
-            <SearchBar
-                v-if="currentView === 'search'"
-                @search="
-                    (query) =>
-                        handleSearch(
-                            query,
-                            bangs,
-                            walletConnection,
-                            fallbackSearchEngine,
-                            arweaveExplorer,
-                        )
-                "
-            />
+            <SearchBar v-if="currentView === 'search'" @search="handleSearch" />
             <BangEditor
                 v-if="showBangEditor"
                 :bangs="bangs"

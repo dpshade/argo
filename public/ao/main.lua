@@ -1,237 +1,285 @@
--- aos tinyNav
-
 local json = require("json")
 
-print("Bang CRUD Handlers Script started")
+print("tinyNav Handlers Script started")
 
 -- Initialize the data storage table
 Bangs = Bangs or {}
 FallbackSearchEngine = FallbackSearchEngine or "https://google.com/search?q=%s"
 ArweaveExplorer = ArweaveExplorer or "https://viewblock.io/arweave/tx/%s"
+DefaultArweaveGateway = DefaultArweaveGateway or "https://arweave.net/"
 
--- Handler to update fallback search engine
-Handlers.add('UpdateFallbackSearchEngine',
-    Handlers.utils.hasMatchingTag('Action', 'UpdateFallbackSearchEngine'),
-    function(msg)
-        print("UpdateFallbackSearchEngine handler called")
-        local url = msg.Tags["URL"]
-        if not url then
-            print("Error: Missing URL")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "UpdateFallbackSearchEngine" },
-                Data = json.encode({ error = "Missing URL" })
-            })
-            return
-        end
+-- Helper function to send response
+local function sendResponse(target, action, data)
+    ao.send({
+        Target = target,
+        Tags = { Action = action .. "Response" },
+        Data = json.encode(data)
+    })
+end
 
-        -- Update the fallback search engine
-        FallbackSearchEngine = url
-
-        print("Fallback search engine updated: " .. url)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "UpdateFallbackSearchEngine" },
-            Data = json.encode({ success = true, url = url })
-        })
+-- Helper function to get a field from a message, supporting both structures
+local function getField(msg, field)
+    if msg.Tags and msg.Tags[field] then
+        return msg.Tags[field]
+    elseif msg[field] then
+        return msg[field]
     end
-)
+    return nil
+end
 
--- Handler to update Arweave explorer
-Handlers.add('UpdateArweaveExplorer',
-    Handlers.utils.hasMatchingTag('Action', 'UpdateArweaveExplorer'),
-    function(msg)
-        print("UpdateArweaveExplorer handler called")
-        local url = msg.Tags["URL"]
-        if not url then
-            print("Error: Missing URL")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "UpdateArweaveExplorer" },
-                Data = json.encode({ error = "Missing URL" })
-            })
-            return
+-- Helper function to check required fields
+local function checkRequiredFields(msg, fields)
+    local missingFields = {}
+    for _, field in ipairs(fields) do
+        if not getField(msg, field) then
+            table.insert(missingFields, field)
         end
-
-        -- Update the Arweave explorer
-        ArweaveExplorer = url
-
-        print("Arweave explorer updated: " .. url)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "UpdateArweaveExplorer" },
-            Data = json.encode({ success = true, url = url })
-        })
     end
-)
+    return #missingFields == 0, missingFields
+end
 
--- Handler to create a new bang
-Handlers.add('CreateBang',
-    Handlers.utils.hasMatchingTag('Action', 'CreateBang'),
-    function(msg)
-        print("CreateBang handler called")
-        local name = msg.Tags["Name"]
-        local url = msg.Tags["URL"]
-        if not name or not url then
-            print("Error: Missing Name or URL")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "CreateBang" },
-                Data = json.encode({ error = "Missing Name or URL" })
-            })
-            return
-        end
+-- Helper function to encode URI component
+local function encodeURIComponent(str)
+    return str:gsub("[^%w%-_%.%!%~%*%'%(%)]", function(c)
+        return string.format("%%%02X", string.byte(c))
+    end)
+end
 
-        -- Store the new bang
-        Bangs[name] = url
-
-        print("Bang created: " .. name .. " -> " .. url)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "CreateBang" },
-            Data = json.encode({ success = true, name = name, url = url })
-        })
+-- Helper function to format URL with or without %s
+local function formatUrl(url, term)
+    if url:find("%%s") then
+        return string.format(url, encodeURIComponent(term))
+    else
+        return url
     end
-)
+end
 
--- Handler to read a bang
-Handlers.add('ReadBang',
-    Handlers.utils.hasMatchingTag('Action', 'ReadBang'),
-    function(msg)
-        print("ReadBang handler called")
-        local name = msg.Tags["Name"]
-        if not name then
-            print("Error: Missing Name")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "ReadBang" },
-                Data = json.encode({ error = "Missing Name" })
-            })
-            return
-        end
-
-        local url = Bangs[name]
-        if not url then
-            print("Error: Bang not found")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "ReadBang" },
-                Data = json.encode({ error = "Bang not found" })
-            })
-            return
-        end
-
-        print("Bang retrieved: " .. name .. " -> " .. url)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "ReadBang" },
-            Data = json.encode({ success = true, name = name, url = url })
-        })
+-- Helper function to ensure URL has a protocol
+local function ensureProtocol(url)
+    if not url:match("^https?://") then
+        return "https://" .. url
     end
-)
+    return url
+end
 
--- Handler to update a bang
-Handlers.add('UpdateBang',
-    Handlers.utils.hasMatchingTag('Action', 'UpdateBang'),
-    function(msg)
-        print("UpdateBang handler called")
-        local oldName = msg.Tags["OldName"]
-        local newName = msg.Tags["NewName"]
-        local url = msg.Tags["URL"]
-        if not oldName or not newName or not url then
-            print("Error: Missing OldName, NewName, or URL")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "UpdateBang" },
-                Data = json.encode({ error = "Missing OldName, NewName, or URL" })
-            })
-            return
-        end
-
-        if not Bangs[oldName] then
-            print("Error: Bang not found")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "UpdateBang" },
-                Data = json.encode({ error = "Bang not found" })
-            })
-            return
-        end
-
-        -- Update the bang
-        Bangs[oldName] = nil -- Remove the old entry
-        Bangs[newName] = url -- Add the new entry
-
-        print("Bang updated: " .. oldName .. " -> " .. newName .. " : " .. url)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "UpdateBang" },
-            Data = json.encode({ success = true, oldName = oldName, newName = newName, url = url })
-        })
+-- Search function
+local function handleSearch(query)
+    local trimmedQuery = query:gsub("^%s*(.-)%s*$", "%1")
+    print("Searching: " .. trimmedQuery)
+    local words = {}
+    for word in trimmedQuery:gmatch("%S+") do
+        table.insert(words, word)
     end
-)
 
--- Handler to delete a bang
-Handlers.add('DeleteBang',
-    Handlers.utils.hasMatchingTag('Action', 'DeleteBang'),
-    function(msg)
-        print("DeleteBang handler called")
-        local name = msg.Tags["Name"]
-        if not name then
-            print("Error: Missing Name")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "DeleteBang" },
-                Data = json.encode({ error = "Missing Name" })
-            })
-            return
+    -- Check all bangs first
+    for name, bang in pairs(Bangs) do
+        if words[1]:lower() == name:lower() then
+            local searchTerm = table.concat(words, " ", 2)
+            local redirectUrl = formatUrl(bang.url, searchTerm)
+            return redirectUrl
         end
-
-        if not Bangs[name] then
-            print("Error: Bang not found")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "DeleteBang" },
-                Data = json.encode({ error = "Bang not found" })
-            })
-            return
-        end
-
-        -- Delete the bang
-        Bangs[name] = nil
-
-        print("Bang deleted: " .. name)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "DeleteBang" },
-            Data = json.encode({ success = true, name = name })
-        })
     end
-)
 
--- Handler to list all Bangs
--- Handler to list all Bangs and return defaults
-Handlers.add('ListBangs',
-    Handlers.utils.hasMatchingTag('Action', 'ListBangs'),
-    function(msg)
-        print("ListBangs handler called")
-        local bangList = {}
-        for name, url in pairs(Bangs) do
-            table.insert(bangList, { name = name, url = url })
+    -- Check for bang anywhere in the query
+    for i, word in ipairs(words) do
+        for name, bang in pairs(Bangs) do
+            if word:lower() == name:lower() then
+                local searchTermWords = {}
+                for j, w in ipairs(words) do
+                    if j ~= i then
+                        table.insert(searchTermWords, w)
+                    end
+                end
+                local searchTerm = table.concat(searchTermWords, " ")
+                local redirectUrl = formatUrl(bang.url, searchTerm)
+                return redirectUrl
+            end
         end
+    end
 
-        print("Bangs listed, count: " .. #bangList)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "ListBangs" },
-            Data = json.encode({
+    -- Check if it's an Arweave transaction ID (with or without '!' at the start or end)
+    local txId, hasBang
+    if #trimmedQuery == 43 and trimmedQuery:match("^[a-zA-Z0-9_-]+$") then
+        txId = trimmedQuery
+        hasBang = false
+    elseif #trimmedQuery == 44 and trimmedQuery:match("^![a-zA-Z0-9_-]+$") then
+        txId = trimmedQuery:sub(2) -- Remove leading '!'
+        hasBang = true
+    elseif #trimmedQuery == 44 and trimmedQuery:match("^[a-zA-Z0-9_-]+!$") then
+        txId = trimmedQuery:sub(1, -2) -- Remove trailing '!'
+        hasBang = true
+    end
+
+    if txId then
+        print("Found Tx: " .. txId)
+        if hasBang then
+            -- Use default gateway (arweave.net)
+            return DefaultArweaveGateway .. txId
+        else
+            -- Use configured ArweaveExplorer
+            return formatUrl(ArweaveExplorer, txId)
+        end
+    end
+
+    -- Use fallback search engine
+    local searchUrl = formatUrl(FallbackSearchEngine, trimmedQuery)
+    return searchUrl
+end
+
+-- Define actions
+local actions = {
+    UpdateFallbackSearchEngine = {
+        fields = { "URL" },
+        handler = function(msg)
+            local url = ensureProtocol(getField(msg, "URL"))
+            FallbackSearchEngine = url
+            print("FallbackSearchEngine updated: " .. url)
+            return { success = true, url = url }
+        end
+    },
+    UpdateArweaveExplorer = {
+        fields = { "URL" },
+        handler = function(msg)
+            local url = ensureProtocol(getField(msg, "URL"))
+            ArweaveExplorer = url
+            print("ArweaveExplorer updated: " .. url)
+            return { success = true, url = url }
+        end
+    },
+    CreateBang = {
+        fields = { "Name", "URL" },
+        handler = function(msg)
+            local name = getField(msg, "Name")
+            local url = ensureProtocol(getField(msg, "URL"))
+            Bangs[name] = { name = name, url = url }
+            print("Bang created: " .. name .. " -> " .. url)
+            return { success = true, name = name, url = url }
+        end
+    },
+    ReadBang = {
+        fields = { "Name" },
+        handler = function(msg)
+            local name = getField(msg, "Name")
+            local bang = Bangs[name]
+            if not bang then
+                return { error = "Bang not found" }
+            end
+            print("Bang retrieved: " .. name .. " -> " .. bang.url)
+            return { success = true, name = name, url = bang.url }
+        end
+    },
+    UpdateBang = {
+        fields = { "OldName", "NewName", "URL" },
+        handler = function(msg)
+            local oldName = getField(msg, "OldName")
+            local newName = getField(msg, "NewName")
+            local url = ensureProtocol(getField(msg, "URL"))
+            if not Bangs[oldName] then
+                return { error = "Bang not found" }
+            end
+            Bangs[oldName] = nil
+            Bangs[newName] = { name = newName, url = url }
+            print("Bang updated: " .. oldName .. " -> " .. newName .. " : " .. url)
+            return { success = true, oldName = oldName, newName = newName, url = url }
+        end
+    },
+    DeleteBang = {
+        fields = { "Name" },
+        handler = function(msg)
+            local name = getField(msg, "Name")
+            if not Bangs[name] then
+                return { error = "Bang not found" }
+            end
+            Bangs[name] = nil
+            print("Bang deleted: " .. name)
+            return { success = true, name = name }
+        end
+    },
+    GetState = {
+        fields = {},
+        handler = function(msg)
+            local bangList = {}
+            for name, bang in pairs(Bangs) do
+                table.insert(bangList, { name = name, url = bang.url })
+            end
+            print("State retrieved, bang count: " .. #bangList)
+            return {
                 success = true,
                 Bangs = bangList,
                 FallbackSearchEngine = FallbackSearchEngine,
                 ArweaveExplorer = ArweaveExplorer
-            })
-        })
-    end
-)
+            }
+        end
+    },
+    Search = {
+        fields = { "Query" },
+        handler = function(msg)
+            local query = getField(msg, "Query")
+            local result = handleSearch(query)
+            return { result = result }
+        end
+    },
+    Info = {
+        fields = {},
+        handler = function(msg)
+            local bangCount = 0
+            for _ in pairs(Bangs) do
+                bangCount = bangCount + 1
+            end
 
-print("Bang CRUD Handlers Script completed")
+            return {
+                success = true,
+                summary = {
+                    bangCount = bangCount,
+                    fallbackSearchEngine = FallbackSearchEngine,
+                    arweaveExplorer = ArweaveExplorer,
+                    defaultArweaveGateway = DefaultArweaveGateway
+                }
+            }
+        end
+    }
+}
+
+-- Generic handler function
+local function handleAction(msg)
+    local action = getField(msg, "Action")
+    if not action then
+        print("Error: Missing Action")
+        sendResponse(msg.From, "Error", { error = "Missing Action" })
+        return
+    end
+    print("Received action: " .. action)
+    local actionData = actions[action]
+    if not actionData then
+        print("Error: Unknown action " .. action)
+        sendResponse(msg.From, action .. "Response", { error = "Unknown action" })
+        return
+    end
+    local fieldsOk, missingFields = checkRequiredFields(msg, actionData.fields)
+    if not fieldsOk then
+        local errorMsg = "Missing fields: " .. table.concat(missingFields, ", ")
+        print("Error: " .. errorMsg)
+        sendResponse(msg.From, action .. "Response", { error = errorMsg })
+        return
+    end
+    print(action .. " handler called")
+    local success, result = pcall(function()
+        return actionData.handler(msg)
+    end)
+    if not success then
+        print("Error in " .. action .. " handler: " .. tostring(result))
+        sendResponse(msg.From, action .. "Response", { error = "Internal error: " .. tostring(result) })
+    else
+        sendResponse(msg.From, action .. "Response", result)
+    end
+end
+
+-- Register handlers
+for action, _ in pairs(actions) do
+    Handlers.add(action,
+        Handlers.utils.hasMatchingTag('Action', action),
+        handleAction
+    )
+end
+
+print("tinyNav Handlers Script completed")

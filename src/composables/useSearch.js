@@ -1,32 +1,33 @@
 import { ref } from "vue";
-import { handleSearch as performSearch } from "../helpers/searchLogic";
+import { walletManager } from "../helpers/walletManager";
 import { store } from "../store";
 
 export function useSearch() {
   const searchResult = ref("");
 
-  async function handleSearch(
-    query,
-    bangs,
-    walletConnection,
-    fallbackSearchEngine,
-    arweaveExplorer,
-  ) {
+  async function handleSearch(query) {
     store.isLoading = true;
     try {
-      const result = await performSearch(
-        query,
-        bangs,
-        walletConnection,
-        fallbackSearchEngine,
-        arweaveExplorer,
+      const result = await walletManager.dryRunArweave(
+        [
+          { name: "Action", value: "Search" },
+          { name: "Query", value: query },
+        ],
+        "",
+        walletManager.processId,
       );
-      searchResult.value = result;
-      if (result.startsWith("Redirecting to:")) {
-        const url = result.split(": ")[1];
+
+      if (result.Messages && result.Messages.length > 0) {
+        const data = JSON.parse(result.Messages[0].Data);
+        searchResult.value = data.result;
+        console.log("Search result:", searchResult.value);
+        let url = searchResult.value;
         window.open(url, "_blank");
+
+        return data.result;
+      } else {
+        throw new Error("No response from search handler");
       }
-      return result;
     } catch (error) {
       console.error("Error during search:", error);
       searchResult.value = "An error occurred during the search.";

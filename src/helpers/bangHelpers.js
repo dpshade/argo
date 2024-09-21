@@ -1,11 +1,13 @@
-import { cacheModule } from "./cacheModule";
+import { walletManager } from "./walletManager";
 
-export async function createBang(walletManager, name, url) {
+export async function createBang(name, url) {
   if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
 
-  url = ensureHttps(url);
+  if (typeof name !== "string" || typeof url !== "string") {
+    throw new Error("Invalid bang data: name and url must be strings");
+  }
 
   console.log(`Creating bang: ${name} with URL: ${url}`);
   const result = await walletManager.sendMessageToArweave(
@@ -19,105 +21,71 @@ export async function createBang(walletManager, name, url) {
   );
   console.log("Create bang result:", result);
 
-  if (result.success) {
-    cacheModule.set(name, { url }, "redirect");
+  if (result.Messages && result.Messages.length > 0) {
+    return JSON.parse(result.Messages[0].Data);
   }
-
-  return result;
+  throw new Error("Failed to create bang");
 }
 
-export async function getAllBangs(walletManager, dryRun = true) {
+export async function getAllBangs() {
   if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
 
-  console.log(
-    dryRun
-      ? "Performing dry run of getAllBangs"
-      : "Getting all bangs and defaults",
-  );
-
-  const action = dryRun ? "dryRunArweave" : "sendMessageToArweave";
-
-  const result = await walletManager[action](
-    [{ name: "Action", value: "ListBangs" }],
+  console.log("Getting all bangs and defaults");
+  const result = await walletManager.dryRunArweave(
+    [{ name: "Action", value: "GetState" }],
     "",
     walletManager.processId,
   );
 
   console.log("Get all bangs and defaults result:", result);
 
-  if (result && result.Messages && result.Messages.length > 0) {
-    try {
-      const data = JSON.parse(result.Messages[0].Data);
-      if (data.success) {
-        return {
-          success: true,
-          Bangs: data.Bangs || [],
-          FallbackSearchEngine:
-            data.FallbackSearchEngine || "https://google.com/search?q=%s",
-          ArweaveExplorer:
-            data.ArweaveExplorer || "https://viewblock.io/arweave/tx/%s",
-        };
-      }
-    } catch (error) {
-      console.error("Error parsing bangs data:", error);
-    }
+  if (result.Messages && result.Messages.length > 0) {
+    return JSON.parse(result.Messages[0].Data);
   }
-
-  return {
-    success: false,
-    Bangs: [],
-    FallbackSearchEngine: "https://google.com/search?q=%s",
-    ArweaveExplorer: "https://viewblock.io/arweave/tx/%s",
-  };
+  throw new Error("Failed to get bangs and defaults");
 }
 
-export async function updateBang(walletManager, oldName, newName, url) {
+export async function updateBang(oldName, newName, url) {
   if (!walletManager.address) {
     throw new Error("Wallet not connected");
+  }
+
+  if (
+    typeof oldName !== "string" ||
+    typeof newName !== "string" ||
+    typeof url !== "string"
+  ) {
+    throw new Error(
+      "Invalid bang data: oldName, newName, and url must be strings",
+    );
   }
 
   console.log(`Updating bang: ${oldName} to ${newName} with URL: ${url}`);
+  const result = await walletManager.sendMessageToArweave(
+    [
+      { name: "Action", value: "UpdateBang" },
+      { name: "OldName", value: oldName },
+      { name: "NewName", value: newName },
+      { name: "URL", value: url },
+    ],
+    "",
+    walletManager.processId,
+  );
+  console.log("Update bang result:", result);
 
-  url = ensureHttps(url);
-
-  try {
-    const result = await walletManager.sendMessageToArweave(
-      [
-        { name: "Action", value: "UpdateBang" },
-        { name: "OldName", value: oldName },
-        { name: "NewName", value: newName },
-        { name: "URL", value: url },
-      ],
-      "",
-      walletManager.processId,
-    );
-
-    console.log("Update bang result:", result);
-
-    if (result.success) {
-      if (oldName !== newName) {
-        cacheModule.invalidate(oldName, "redirect");
-      }
-      cacheModule.set(newName, { url }, "redirect");
-    }
-
-    if (result.Error) {
-      throw new Error(result.Error);
-    }
-
-    return result;
-  } catch (error) {
-    console.error("Error updating bang:", error);
-    throw error;
+  if (result.Messages && result.Messages.length > 0) {
+    return JSON.parse(result.Messages[0].Data);
   }
+  throw new Error("Failed to update bang");
 }
 
-export async function deleteBang(walletManager, name) {
+export async function deleteBang(name) {
   if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
+
   console.log(`Deleting bang: ${name}`);
   const result = await walletManager.sendMessageToArweave(
     [
@@ -129,19 +97,16 @@ export async function deleteBang(walletManager, name) {
   );
   console.log("Delete bang result:", result);
 
-  if (result.success) {
-    cacheModule.invalidate(name, "redirect");
+  if (result.Messages && result.Messages.length > 0) {
+    return JSON.parse(result.Messages[0].Data);
   }
-
-  return result;
+  throw new Error("Failed to delete bang");
 }
 
-export async function updateFallbackSearchEngine(walletManager, url) {
+export async function updateFallbackSearchEngine(url) {
   if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
-
-  url = ensureHttps(url);
 
   return await walletManager.sendMessageToArweave(
     [
@@ -153,12 +118,10 @@ export async function updateFallbackSearchEngine(walletManager, url) {
   );
 }
 
-export async function updateArweaveExplorer(walletManager, url) {
+export async function updateArweaveExplorer(url) {
   if (!walletManager.address) {
     throw new Error("Wallet not connected");
   }
-
-  url = ensureHttps(url);
 
   return await walletManager.sendMessageToArweave(
     [
@@ -170,9 +133,24 @@ export async function updateArweaveExplorer(walletManager, url) {
   );
 }
 
-function ensureHttps(url) {
-  if (!/^https?:\/\//i.test(url)) {
-    return `https://${url}`;
+export async function readBang(name) {
+  if (!walletManager.address) {
+    throw new Error("Wallet not connected");
   }
-  return url;
+
+  console.log(`Reading bang: ${name}`);
+  const result = await walletManager.dryRunArweave(
+    [
+      { name: "Action", value: "ReadBang" },
+      { name: "Name", value: name },
+    ],
+    "",
+    walletManager.processId,
+  );
+  console.log("Read bang result:", result);
+
+  if (result.Messages && result.Messages.length > 0) {
+    return JSON.parse(result.Messages[0].Data);
+  }
+  throw new Error("Failed to read bang");
 }
