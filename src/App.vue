@@ -201,7 +201,12 @@ watch(isWalletConnected, (newValue) => {
                     @walletDisconnected="onWalletDisconnected"
                 />
             </div>
-            <h1 class="title">tinyNav</h1>
+            <h1
+                class="title"
+                :class="{ 'hide-on-mobile': currentView === 'bangEditor' }"
+            >
+                tinyNav
+            </h1>
             <SearchBar
                 v-if="currentView === 'search'"
                 @search="
@@ -423,13 +428,21 @@ button:hover {
     display: block;
 }
 
+.title {
+    color: var(--text-color);
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 2.5rem;
+    font-weight: 300;
+}
+
 @media screen and (max-width: 768px) {
     body {
         font-size: 14px;
         -webkit-text-size-adjust: 100%;
     }
 
-    .title {
+    .hide-on-mobile {
         display: none;
     }
 
