@@ -7,8 +7,11 @@ Bangs = Bangs or {}
 FallbackSearchEngine = FallbackSearchEngine or "https://google.com/search?q=%s"
 ArweaveExplorer = ArweaveExplorer or "https://ao.link/#/message/%s"
 DefaultArweaveGateway = DefaultArweaveGateway or "https://arweave.net/%s"
+DefaultAdded = DefaultAdded or false
 
 local function addDefaultBangs()
+    if DefaultAdded then return end
+
     local defaultBangs = {
         { "!yt",   "https://www.youtube.com/results?search_query=%s" },
         { "!gh",   "https://github.com/search?q=%s" },
@@ -23,17 +26,20 @@ local function addDefaultBangs()
             print("Default bang added: " .. bang[1] .. " -> " .. bang[2])
         end
     end
+    DefaultAdded = true
 end
 
 local function arnsExists(name)
-    local json = require("json")
-    local res = ao.send({
-        Target = "BBFXvjnjlflwY3T2G_Lzus1hyEVukzMxZfflOcgQfzk",
+    ao.send({
+        Target = "nX64lk5_4R6StOdV3rSb-2zM0t-1FShXNoA_GIdV3ZE",
         Action = "ArNSExists",
         ["Name"] = name
-    }).receive().Data
+    })
 
-    local exists = res.Data.json.decode(res.Data).exists
+    local res = Receive({ Action = "ArnsExistsResponse" })
+    local exists = json.decode(res.Data).exists
+    print(exists)
+
     return exists
 end
 
@@ -103,14 +109,14 @@ local function handleSearch(query)
     local resultUrl = nil
 
     -- Check if the query is a single word (no spaces)
-    -- if #words == 1 then
-    --     -- Check if it's an ArNS name
-    --     local exists = arnsExists(trimmedQuery)
-    --     if exists then
-    --         -- If it exists, set the URL with the default gateway
-    --         resultUrl = trimmedQuery .. "." .. DefaultArweaveGateway
-    --     end
-    -- end
+    if #words == 1 then
+        -- Check if it's an ArNS name
+        local exists = arnsExists(trimmedQuery)
+        if exists then
+            -- If it exists, set the URL with the default gateway
+            resultUrl = trimmedQuery .. "." .. DefaultArweaveGateway
+        end
+    end
 
     -- If not an ArNS name, proceed with other checks
     if not resultUrl then
@@ -359,6 +365,8 @@ for action, _ in pairs(actions) do
     )
 end
 
-addDefaultBangs()
+if not DefaultAdded then
+    addDefaultBangs()
+end
 
 print("tinyNav Handlers Script completed")

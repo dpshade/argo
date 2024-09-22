@@ -100,6 +100,8 @@ class WalletManager {
         data: safeData,
       });
 
+      console.log(messageId);
+
       const { Messages, Error } = await result({
         process: processId,
         message: messageId,
@@ -133,7 +135,7 @@ class WalletManager {
   }
 
   async dryRunAllArns() {
-    const processId = "BBFXvjnjlflwY3T2G_Lzus1hyEVukzMxZfflOcgQfzk";
+    const processId = "nX64lk5_4R6StOdV3rSb-2zM0t-1FShXNoA_GIdV3ZE";
     try {
       const { Messages, Error } = await dryrun({
         process: processId,
@@ -221,7 +223,13 @@ class WalletManager {
             const newProcessId = await this.spawnProcess(
               USER_PROCESS_MODULE,
               SCHEDULER_ID,
-              [{ name: "App-Name", value: "tinyNav" }],
+              [
+                { name: "App-Name", value: "tinyNav" },
+                {
+                  name: "Authority",
+                  value: "fcoN_xJeisVsPXA-trzVAuIiqO3ydLQxM-L4XbrQKzY",
+                },
+              ],
               "Spawning process...",
             );
 
@@ -317,6 +325,7 @@ class WalletManager {
         module: moduleId,
         scheduler: schedulerId,
         signer: this.signer,
+        authority: "fcoN_xJeisVsPXA-trzVAuIiqO3ydLQxM-L4XbrQKzY",
         tags,
         data,
       });

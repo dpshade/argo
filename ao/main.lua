@@ -7,8 +7,11 @@ Bangs = Bangs or {}
 FallbackSearchEngine = FallbackSearchEngine or "https://google.com/search?q=%s"
 ArweaveExplorer = ArweaveExplorer or "https://ao.link/#/message/%s"
 DefaultArweaveGateway = DefaultArweaveGateway or "https://arweave.net/%s"
+DefaultAdded = DefaultAdded or false
 
 local function addDefaultBangs()
+    if DefaultAdded then return end
+
     local defaultBangs = {
         { "!yt",   "https://www.youtube.com/results?search_query=%s" },
         { "!gh",   "https://github.com/search?q=%s" },
@@ -23,18 +26,48 @@ local function addDefaultBangs()
             print("Default bang added: " .. bang[1] .. " -> " .. bang[2])
         end
     end
+    DefaultAdded = true
 end
 
-local function arnsExists(name)
-    local json = require("json")
-    local res = ao.send({
-        Target = "BBFXvjnjlflwY3T2G_Lzus1hyEVukzMxZfflOcgQfzk",
-        Action = "ArNSExists",
-        ["Name"] = name
-    }).receive().Data
+local function arnsExists(name, userAddress)
+    local arnsProcessId = "nX64lk5_4R6StOdV3rSb-2zM0t-1FShXNoA_GIdV3ZE"
+    print("Sending ArnsExists request to: " .. arnsProcessId)
 
-    local exists = res.Data.json.decode(res.Data).exists
-    return exists
+    ao.send({
+        Target = arnsProcessId,
+        Action = "ArnsExists",
+        ["Name"] = name,
+        ["UserAddress"] = userAddress
+    })
+
+    print("Sent ArnsExists request, waiting for response...")
+
+    local res, err = Receive({ Action = "ArnsExistsResponse" }) -- 10 second timeout
+    if not res then
+        print("Error: No response received from ArnsExists. Error: " .. (err or "Unknown"))
+        return false
+    end
+
+    print("Received ArnsExists response")
+
+    if not res.Data then
+        print("Error: Invalid response from ArnsExists (no Data field)")
+        return false
+    end
+
+    local data = json.decode(res.Data)
+    if not data then
+        print("Error: Failed to decode JSON response from ArnsExists")
+        return false
+    end
+
+    if data.error then
+        print("Error in ArnsExists response: " .. data.error)
+        return false
+    end
+
+    print("ArnsExists result for " .. name .. ": " .. tostring(data.exists))
+    return data.exists
 end
 
 -- Helper function to send response
@@ -92,7 +125,7 @@ local function ensureProtocol(url)
 end
 
 -- Search function
-local function handleSearch(query)
+local function handleSearch(query, userAddress)
     local trimmedQuery = query:gsub("^%s*(.-)%s*$", "%1")
     print("Searching: " .. trimmedQuery)
     local words = {}
@@ -103,16 +136,16 @@ local function handleSearch(query)
     local resultUrl = nil
 
     -- Check if the query is a single word (no spaces)
-    -- if #words == 1 then
-    --     -- Check if it's an ArNS name
-    --     local exists = arnsExists(trimmedQuery)
-    --     if exists then
-    --         -- If it exists, set the URL with the default gateway
-    --         resultUrl = trimmedQuery .. "." .. DefaultArweaveGateway
-    --     end
-    -- end
+    if #words == 1 then
+        -- Check if it's an Arns name
+        local exists = arnsExists(trimmedQuery, userAddress)
+        if exists then
+            -- If it exists, set the URL with the default gateway
+            resultUrl = trimmedQuery .. "." .. DefaultArweaveGateway
+        end
+    end
 
-    -- If not an ArNS name, proceed with other checks
+    -- If not an Arns name, proceed with other checks
     if not resultUrl then
         -- Check all bangs first
         for name, bang in pairs(Bangs) do
@@ -265,34 +298,11 @@ local actions = {
             }
         end
     },
-    ArnsExists = {
-        fields = { "Name" },
-        handler = function(msg)
-            local res = ao.receive({ Action = "ArNSExistsResponse" })
-            extractNames(res.Data)
-            print("Fetched ARNS domains: " .. #arnsDomains)
-
-            local nameExists = false
-            for _, name in ipairs(arnsDomains) do
-                if name == nameToCheck then
-                    nameExists = true
-                    break
-                end
-            end
-
-            print("Name " .. nameToCheck .. " exists: " .. tostring(nameExists))
-            return {
-                success = true,
-                name = nameToCheck,
-                exists = nameExists
-            }
-        end
-    },
     Search = {
         fields = { "Query" },
         handler = function(msg)
             local query = getField(msg, "Query")
-            local result = handleSearch(query)
+            local result = handleSearch(query, msg.From)
             return { result = result }
         end
     },
@@ -359,6 +369,8 @@ for action, _ in pairs(actions) do
     )
 end
 
-addDefaultBangs()
+if not DefaultAdded then
+    addDefaultBangs()
+end
 
 print("tinyNav Handlers Script completed")

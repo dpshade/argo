@@ -1,3 +1,4 @@
+-- ProcessID = fZnoaLqIP1zk3C1AZ9s546MmOdE-ujjOaGtMzj431cw
 local json = require("json")
 
 UserProcessMap = UserProcessMap or {}
@@ -56,14 +57,14 @@ Handlers.add('GetUser',
     function(msg)
         print("GetUser handler called")
 
-        local walletAddress = msg.From
+        local walletAddress = msg.Tags["UserAddress"] or msg.From
         local processId = UserProcessMap[walletAddress]
 
         if processId then
             print("ProcessID found for wallet " .. walletAddress .. ": " .. processId)
             ao.send({
                 Target = msg.From,
-                Tags = { ["Action"] = "GetUser" },
+                Tags = { ["Action"] = "GetUserResponse" },
                 Data = json.encode({
                     success = true,
                     walletAddress = walletAddress,
@@ -74,7 +75,7 @@ Handlers.add('GetUser',
             print("No ProcessID found for wallet " .. walletAddress)
             ao.send({
                 Target = msg.From,
-                Tags = { ["Action"] = "GetUser" },
+                Tags = { ["Action"] = "GetUserResponse" },
                 Data = json.encode({
                     success = false,
                 })

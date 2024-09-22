@@ -8,7 +8,7 @@ export function useSearch(isLoading) {
   async function handleSearch(query) {
     isLoading.value = true;
     try {
-      const result = await walletManager.dryRunArweave(
+      const result = await walletManager.sendMessageToArweave(
         [
           { name: "Action", value: "Search" },
           { name: "Query", value: query },
@@ -16,6 +16,8 @@ export function useSearch(isLoading) {
         "",
         walletManager.processId,
       );
+
+      console.log(result);
 
       if (result.Messages && result.Messages.length > 0) {
         const data = JSON.parse(result.Messages[0].Data);

@@ -45,7 +45,9 @@ watch(
             .map((bang, index) => ({
                 ...bang,
                 originalName: bang.name,
+                originalUrl: bang.url,
                 isSaving: false,
+                isModified: false,
                 id: index,
             }))
             .sort((a, b) => a.name.localeCompare(b.name));
@@ -120,12 +122,16 @@ function updateBangName(bang, newName) {
         bang.originalName = bang.name;
     }
     bang.name = newName;
+    bang.isModified =
+        bang.name !== bang.originalName || bang.url !== bang.originalUrl;
     bangs.value.sort((a, b) => a.name.localeCompare(b.name));
     focusInput(bang.id);
 }
 
 function updateBangUrl(bang, newUrl) {
     bang.url = newUrl;
+    bang.isModified =
+        bang.name !== bang.originalName || bang.url !== bang.originalUrl;
 }
 
 async function saveBangChanges(bang) {
@@ -138,6 +144,8 @@ async function saveBangChanges(bang) {
         if (result.Error) throw new Error(result.Error);
 
         bang.originalName = bang.name;
+        bang.originalUrl = bang.url;
+        bang.isModified = false;
 
         updateCachedBangs();
         emit("update:bangs", bangs.value);
@@ -213,10 +221,11 @@ defineExpose({ focusNewBangInput });
                         <button
                             @click="saveBangChanges(bang)"
                             class="icon-button save-button"
+                            :class="{ modified: bang.isModified }"
                             :title="
                                 bang.isSaving ? 'Saving...' : 'Save changes'
                             "
-                            :disabled="bang.isSaving"
+                            :disabled="bang.isSaving || !bang.isModified"
                         >
                             <template v-if="!bang.isSaving">
                                 <svg
@@ -427,21 +436,56 @@ input {
     display: flex;
 }
 
-.bang-actions .save-button {
-    margin-top: 2px;
+.icon-button.save-button {
+    opacity: 0.5;
 }
 
-.bang-actions .icon-button {
-    align-items: center;
+.icon-button.save-button.modified {
+    opacity: 1;
+}
+
+.icon-button.save-button.modified svg {
+    fill: orange;
+}
+
+.icon-button.save-button.modified:hover {
+    transform: scale(1.1);
+}
+
+.icon-button.save-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Styles for the delete button */
+.icon-button.delete-button:hover {
+    transform: scale(1.1);
+}
+
+.icon-button.delete-button:hover svg {
+    fill: red;
+}
+
+.icon-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.icon-button {
+    background: none;
     border: none;
     cursor: pointer;
-    transition: background-color 0.3s;
+    padding: 4px;
+    transition:
+        transform 0.2s,
+        opacity 0.3s;
 }
 
-.bang-actions .icon-button svg {
+.icon-button svg {
     width: 20px;
     height: 20px;
-    fill: grey;
+    fill: var(--text-color);
+    transition: fill 0.2s;
 }
 
 .spinner {
@@ -475,10 +519,6 @@ input:disabled {
     transition: transform 0.2s;
 }
 
-.icon-button:hover {
-    transform: scale(1.1);
-}
-
 .icon-button svg {
     width: 20px;
     height: 20px;
@@ -486,8 +526,8 @@ input:disabled {
     transition: fill 0.2s;
 }
 
-.icon-button:hover svg {
-    fill: var(--button-hover-bg);
+.icon-button.save-button.modified:hover {
+    transform: scale(1.1);
 }
 
 .add-bang-form,

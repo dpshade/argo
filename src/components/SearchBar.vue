@@ -30,13 +30,13 @@ const filteredSuggestions = computed(() => {
     const globalSuggestions = [
         {
             text: "tx",
-            description: "Search Arweave explorer for transaction",
+            description: "Open in tx explorer",
             url: "https://ao.link/#/message/tx/",
             type: "tx",
         },
         {
             text: "!tx",
-            description: "View transaction data",
+            description: "Open tx data",
             url: "https://arweave.net/tx/",
             type: "txData",
         },
@@ -47,7 +47,7 @@ const filteredSuggestions = computed(() => {
 
     const customBangSuggestions = props.customBangs.map((bang) => ({
         text: `${bang.name}`,
-        description: `Custom: Search using ${bang.name}`,
+        description: `Search using ${bang.name}`,
         formattedUrl: formatUrl(bang.url),
         type: "bang",
     }));
@@ -56,7 +56,7 @@ const filteredSuggestions = computed(() => {
         query.value.length > 1
             ? arnsDomains.value.map((domain) => ({
                   text: domain,
-                  description: `ArNS domain: ${domain}`,
+                  description: `ArNS domain`,
                   formattedUrl: formatUrl(`https://${domain}.ar.io`),
                   type: "arns",
               }))
@@ -144,9 +144,7 @@ function onInputFocus() {
 }
 
 function onInputBlur() {
-    setTimeout(() => {
-        showSuggestions.value = false;
-    }, 200);
+    showSuggestions.value = false;
 }
 
 function selectSuggestion(suggestion) {
@@ -169,9 +167,13 @@ onMounted(async () => {
     }
 });
 
-watch(query, () => {
-    showSuggestions.value = query.value.length > 0;
-});
+watch(
+    query,
+    () => {
+        showSuggestions.value = query.value.length > 0;
+    },
+    { immediate: true },
+);
 
 defineExpose({ focusInput });
 </script>
@@ -304,7 +306,7 @@ button:hover {
     left: 0;
     right: 0;
     background-color: var(--input-focus-bg);
-    border: 1px solid var(--border-color);
+    /* border: 1px solid var(--border-color); */
     border-top: none;
     border-radius: 0 0 5px 5px;
     max-height: 200px;
@@ -349,6 +351,7 @@ button:hover {
 .suggestion .description {
     color: var(--placeholder-color);
     font-size: 0.9em;
+    font-weight: bold;
     text-align: right;
     margin-bottom: 2px;
 }
