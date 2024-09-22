@@ -19,6 +19,8 @@ import { store } from "./store";
 const searchBarRef = ref(null);
 const bangEditorRef = ref(null);
 const isDataLoaded = ref(false);
+const showResult = ref(false);
+const isBangEditorLoading = ref(false);
 
 const {
     isWalletConnected,
@@ -40,7 +42,7 @@ const {
     resetState,
 } = useBangs();
 
-const { searchResult, handleSearch } = useSearch();
+const { searchResult, handleSearch: originalHandleSearch } = useSearch();
 const {
     currentView,
     isHeadless,
@@ -62,6 +64,12 @@ provide("wallet", {
 });
 
 provide("cachedBangsData", ref(null));
+
+const handleSearch = async (query) => {
+    showResult.value = false;
+    await originalHandleSearch(query);
+    showResult.value = true;
+};
 
 function handleSearchShortcut() {
     currentView.value = "search";
@@ -90,6 +98,9 @@ useKeyboardShortcuts({ handleSearchShortcut, handleEditorShortcut });
 function toggleView() {
     currentView.value =
         currentView.value === "search" ? "bangEditor" : "search";
+    if (currentView.value === "bangEditor") {
+        isBangEditorLoading.value = true;
+    }
 }
 
 async function onWalletConnected(method, address) {
@@ -201,13 +212,29 @@ watch(isWalletConnected, (newValue) => {
                     @walletDisconnected="onWalletDisconnected"
                 />
             </div>
-            <h1
-                class="title"
-                :class="{ 'hide-on-mobile': currentView === 'bangEditor' }"
-            >
-                tinyNav
-            </h1>
-            <SearchBar v-if="currentView === 'search'" @search="handleSearch" />
+            <div class="search-section">
+                <h1
+                    class="title"
+                    :class="{ 'hide-on-mobile': currentView === 'bangEditor' }"
+                >
+                    tinyNav
+                </h1>
+                <SearchBar
+                    v-if="currentView === 'search'"
+                    @search="handleSearch"
+                />
+                <a
+                    v-show="showResult"
+                    :key="searchResult"
+                    class="result"
+                    @animationend="showResult = false"
+                    :href="searchResult"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    {{ searchResult }}
+                </a>
+            </div>
             <BangEditor
                 v-if="showBangEditor"
                 :bangs="bangs"
@@ -218,6 +245,8 @@ watch(isWalletConnected, (newValue) => {
                 @update:fallbackSearchEngine="updateFallback"
                 @update:arweaveExplorer="updateExplorer"
                 @force-update="() => fetchAndLoadData(true)"
+                @loading-complete="isBangEditorLoading = false"
+                :isLoading="isBangEditorLoading"
             />
 
             <!-- <div v-if="searchResult" class="result fade-out">
@@ -288,7 +317,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    /* justify-content: center; */
     background-color: var(--container-bg);
     padding: 30px;
     position: relative;
@@ -313,7 +342,20 @@ h1 {
     font-weight: 300;
 }
 
+.search-section {
+    margin-top: 30vh;
+    position: relative;
+    width: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 .result {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
     margin-top: 20px;
     padding: 15px 0;
     border-bottom: 1px solid var(--border-color);
@@ -321,10 +363,25 @@ h1 {
     line-height: 1.4;
     animation: fadeIn 0.3s ease-out;
     transition: opacity 1s ease-out;
+    text-align: center;
+    animation: fadeInOut 4s ease-out;
+    color: var(--button-hover-bg);
 }
 
-.fade-out {
-    animation: fadeOut 1s ease-out 3s forwards;
+@keyframes fadeInOut {
+    0% {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    10%,
+    90% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
 }
 
 button {
@@ -340,26 +397,6 @@ button {
 
 button:hover {
     background-color: var(--button-hover-bg);
-}
-
-@keyframes fadeOut {
-    from {
-        opacity: 1;
-    }
-    to {
-        opacity: 0;
-    }
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
 }
 
 .loading-overlay {
@@ -458,6 +495,10 @@ button:hover {
     .dark-mode-toggle {
         top: 10px;
         left: 10px;
+    }
+
+    .search-section {
+        width: 95%;
     }
 
     input[type="text"],
