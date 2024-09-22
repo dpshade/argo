@@ -103,6 +103,7 @@ class WalletManager {
       const { Messages, Error } = await result({
         process: processId,
         message: messageId,
+        limit: 25,
       });
 
       if (Error) throw new Error(Error);
@@ -127,6 +128,30 @@ class WalletManager {
       return { Messages, Error };
     } catch (error) {
       console.error("Error in dryRunArweave:", error);
+      throw error;
+    }
+  }
+
+  async dryRunAllArns() {
+    const processId = "BBFXvjnjlflwY3T2G_Lzus1hyEVukzMxZfflOcgQfzk";
+    try {
+      const { Messages, Error } = await dryrun({
+        process: processId,
+        tags: [{ name: "Action", value: "AllArns" }],
+        signer: this.signer,
+      });
+
+      if (Error) throw new Error(Error);
+
+      if (Messages && Messages.length > 0) {
+        const data = JSON.parse(Messages[0].Data);
+        if (data.success && Array.isArray(data.domains)) {
+          return data.domains;
+        }
+      }
+      throw new Error("Invalid response format");
+    } catch (error) {
+      console.error("Error in dryRunAllArns:", error);
       throw error;
     }
   }

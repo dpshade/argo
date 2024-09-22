@@ -5,10 +5,10 @@
             :class="{ 'show-shortcuts': showShortcuts }"
         >
             <span class="shortcut">
-                <kbd>{{ modifierKey }}</kbd> + <kbd>K</kbd> Search
+                Search <kbd>{{ modifierKey }}</kbd> + <kbd>K</kbd>
             </span>
             <span class="shortcut">
-                <kbd>{{ modifierKey }}</kbd> + <kbd>E</kbd> Edit Bangs
+                Edit Bangs <kbd>{{ modifierKey }}</kbd> + <kbd>E</kbd>
             </span>
         </div>
         <div

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, inject } from "vue";
+import { ref, computed, watch, inject, nextTick } from "vue";
 import {
     createBang,
     updateBang,
@@ -28,14 +28,9 @@ const emit = defineEmits([
 ]);
 
 const cachedBangsData = inject("cachedBangsData");
-const bangs = ref(
-    props.bangs.map((bang) => ({
-        ...bang,
-        originalName: bang.name,
-        isSaving: false,
-    })),
-);
+const bangs = ref([]);
 const newBang = ref({ name: "", url: "" });
+const newBangNameInput = ref(null);
 const defaults = ref({
     fallbackSearchEngine:
         props.fallbackSearchEngine || HARDCODED_DEFAULTS.fallbackSearchEngine,
@@ -43,14 +38,17 @@ const defaults = ref({
         props.arweaveExplorer || HARDCODED_DEFAULTS.arweaveExplorer,
 });
 
-const sortedBangs = computed(() =>
-    [...bangs.value].sort((a, b) => a.name.localeCompare(b.name)),
-);
-
 watch(
     () => props.bangs,
     (newBangs) => {
-        bangs.value = newBangs.map((bang) => ({ ...bang }));
+        bangs.value = newBangs
+            .map((bang, index) => ({
+                ...bang,
+                originalName: bang.name,
+                isSaving: false,
+                id: index,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
     },
     { immediate: true },
 );
@@ -87,7 +85,9 @@ async function addBang() {
                     ...newBang.value,
                     originalName: newBang.value.name,
                     isSaving: false,
+                    id: bangs.value.length,
                 });
+                bangs.value.sort((a, b) => a.name.localeCompare(b.name));
                 updateCachedBangs();
                 newBang.value = { name: "", url: "" };
                 emit("update:bangs", bangs.value);
@@ -105,7 +105,7 @@ async function addBang() {
 async function removeBang(bang) {
     try {
         await deleteBang(bang.name);
-        bangs.value = bangs.value.filter((b) => b.name !== bang.name);
+        bangs.value = bangs.value.filter((b) => b.id !== bang.id);
         updateCachedBangs();
         emit("update:bangs", bangs.value);
         emit("force-update");
@@ -120,6 +120,8 @@ function updateBangName(bang, newName) {
         bang.originalName = bang.name;
     }
     bang.name = newName;
+    bangs.value.sort((a, b) => a.name.localeCompare(b.name));
+    focusInput(bang.id);
 }
 
 function updateBangUrl(bang, newUrl) {
@@ -155,7 +157,6 @@ async function saveDefault(key) {
                 ? updateFallbackSearchEngine
                 : updateArweaveExplorer;
 
-        // Make sure we're passing the URL string, not the whole defaults object
         const urlToUpdate = defaults.value[key];
 
         await updateFunction(urlToUpdate);
@@ -167,14 +168,6 @@ async function saveDefault(key) {
     }
 }
 
-// const formatInputValue = (value) => {
-//     if (!value) return "";
-//     return value.replace(
-//         /%s/g,
-//         '<span style="font-weight: bold; color: var(--button-hover-bg);">%s</span>',
-//     );
-// };
-
 function updateCachedBangs() {
     if (cachedBangsData.value) {
         cachedBangsData.value.Bangs = bangs.value.map(({ name, url }) => ({
@@ -183,19 +176,26 @@ function updateCachedBangs() {
         }));
     }
 }
+
+function focusNewBangInput() {
+    nextTick(() => {
+        if (newBangNameInput.value) {
+            newBangNameInput.value.focus();
+        }
+    });
+}
+
+defineExpose({ focusNewBangInput });
 </script>
 
 <template>
     <div class="bang-editor">
         <h2>Edit Bangs</h2>
         <ul class="bang-list">
-            <li
-                v-for="bang in sortedBangs"
-                :key="bang.originalName || bang.name"
-                class="bang-item"
-            >
+            <li v-for="bang in bangs" :key="bang.id" class="bang-item">
                 <div class="bang-form">
                     <input
+                        :id="`bang-name-${bang.id}`"
                         :value="bang.name"
                         @input="updateBangName(bang, $event.target.value)"
                         placeholder="Bang name"
@@ -269,7 +269,12 @@ function updateCachedBangs() {
             </li>
         </ul>
         <form @submit.prevent="addBang" class="add-bang-form">
-            <input v-model="newBang.name" placeholder="Bang name" required />
+            <input
+                v-model="newBang.name"
+                placeholder="Bang name"
+                required
+                ref="newBangNameInput"
+            />
             <input
                 v-model="newBang.url"
                 placeholder="URL (use %s for query)"
@@ -277,6 +282,7 @@ function updateCachedBangs() {
             />
             <button type="submit" class="full-width-button">Add Bang</button>
         </form>
+
         <div class="divider"></div>
         <div class="defaults-section">
             <h3>Default Search Engines</h3>
@@ -313,6 +319,7 @@ function updateCachedBangs() {
     width: 90%;
     max-width: 800px;
     margin: 0 auto;
+    align-items: center;
 }
 
 h2,
@@ -342,6 +349,9 @@ input {
     justify-content: space-between;
     align-items: center;
     border-bottom: 1px solid var(--border-color);
+    max-height: 40vh;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .bang-list li:last-child {
@@ -593,7 +603,8 @@ input:disabled {
         display: flex;
         justify-content: center;
         text-align: center;
-        width: 90%;
+        width: 100%;
+        padding: 8px;
     }
 
     .bang-actions {

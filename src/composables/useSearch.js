@@ -2,11 +2,11 @@ import { ref } from "vue";
 import { walletManager } from "../helpers/walletManager";
 import { store } from "../store";
 
-export function useSearch() {
+export function useSearch(isLoading) {
   const searchResult = ref("");
 
   async function handleSearch(query) {
-    store.isLoading = true;
+    isLoading.value = true;
     try {
       const result = await walletManager.dryRunArweave(
         [
@@ -32,7 +32,7 @@ export function useSearch() {
       console.error("Error during search:", error);
       searchResult.value = "An error occurred during the search.";
     } finally {
-      store.isLoading = false;
+      isLoading.value = false;
     }
   }
 

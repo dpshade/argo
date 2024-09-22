@@ -5,8 +5,37 @@ print("tinyNav Handlers Script started")
 -- Initialize the data storage table
 Bangs = Bangs or {}
 FallbackSearchEngine = FallbackSearchEngine or "https://google.com/search?q=%s"
-ArweaveExplorer = ArweaveExplorer or "https://viewblock.io/arweave/tx/%s"
-DefaultArweaveGateway = DefaultArweaveGateway or "https://arweave.net/"
+ArweaveExplorer = ArweaveExplorer or "https://ao.link/#/message/%s"
+DefaultArweaveGateway = DefaultArweaveGateway or "https://arweave.net/%s"
+
+local function addDefaultBangs()
+    local defaultBangs = {
+        { "!yt",   "https://www.youtube.com/results?search_query=%s" },
+        { "!gh",   "https://github.com/search?q=%s" },
+        { "!a",    "https://www.amazon.com/s?k=%s" },
+        { "!aos2", "https://hackmd.io/OoOsMsd9RNazNrrfiJcqEw" },
+        -- { "!idea", "https://ide.betteridea.dev" },
+    }
+
+    for _, bang in ipairs(defaultBangs) do
+        if not Bangs[bang[1]] then
+            Bangs[bang[1]] = { name = bang[1], url = bang[2] }
+            print("Default bang added: " .. bang[1] .. " -> " .. bang[2])
+        end
+    end
+end
+
+local function arnsExists(name)
+    local json = require("json")
+    local res = ao.send({
+        Target = "BBFXvjnjlflwY3T2G_Lzus1hyEVukzMxZfflOcgQfzk",
+        Action = "ArNSExists",
+        ["Name"] = name
+    }).receive().Data
+
+    local exists = res.Data.json.decode(res.Data).exists
+    return exists
+end
 
 -- Helper function to send response
 local function sendResponse(target, action, data)
@@ -71,59 +100,84 @@ local function handleSearch(query)
         table.insert(words, word)
     end
 
-    -- Check all bangs first
-    for name, bang in pairs(Bangs) do
-        if words[1]:lower() == name:lower() then
-            local searchTerm = table.concat(words, " ", 2)
-            local redirectUrl = formatUrl(bang.url, searchTerm)
-            return redirectUrl
-        end
-    end
+    local resultUrl = nil
 
-    -- Check for bang anywhere in the query
-    for i, word in ipairs(words) do
+    -- Check if the query is a single word (no spaces)
+    -- if #words == 1 then
+    --     -- Check if it's an ArNS name
+    --     local exists = arnsExists(trimmedQuery)
+    --     if exists then
+    --         -- If it exists, set the URL with the default gateway
+    --         resultUrl = trimmedQuery .. "." .. DefaultArweaveGateway
+    --     end
+    -- end
+
+    -- If not an ArNS name, proceed with other checks
+    if not resultUrl then
+        -- Check all bangs first
         for name, bang in pairs(Bangs) do
-            if word:lower() == name:lower() then
-                local searchTermWords = {}
-                for j, w in ipairs(words) do
-                    if j ~= i then
-                        table.insert(searchTermWords, w)
-                    end
-                end
-                local searchTerm = table.concat(searchTermWords, " ")
-                local redirectUrl = formatUrl(bang.url, searchTerm)
-                return redirectUrl
+            if words[1]:lower() == name:lower() then
+                local searchTerm = table.concat(words, " ", 2)
+                resultUrl = bang.url
+                trimmedQuery = searchTerm
+                break
             end
         end
     end
 
-    -- Check if it's an Arweave transaction ID (with or without '!' at the start or end)
-    local txId, hasBang
-    if #trimmedQuery == 43 and trimmedQuery:match("^[a-zA-Z0-9_-]+$") then
-        txId = trimmedQuery
-        hasBang = false
-    elseif #trimmedQuery == 44 and trimmedQuery:match("^![a-zA-Z0-9_-]+$") then
-        txId = trimmedQuery:sub(2) -- Remove leading '!'
-        hasBang = true
-    elseif #trimmedQuery == 44 and trimmedQuery:match("^[a-zA-Z0-9_-]+!$") then
-        txId = trimmedQuery:sub(1, -2) -- Remove trailing '!'
-        hasBang = true
-    end
-
-    if txId then
-        print("Found Tx: " .. txId)
-        if hasBang then
-            -- Use default gateway (arweave.net)
-            return DefaultArweaveGateway .. txId
-        else
-            -- Use configured ArweaveExplorer
-            return formatUrl(ArweaveExplorer, txId)
+    -- If still no result, check for bang anywhere in the query
+    if not resultUrl then
+        for i, word in ipairs(words) do
+            for name, bang in pairs(Bangs) do
+                if word:lower() == name:lower() then
+                    local searchTermWords = {}
+                    for j, w in ipairs(words) do
+                        if j ~= i then
+                            table.insert(searchTermWords, w)
+                        end
+                    end
+                    local searchTerm = table.concat(searchTermWords, " ")
+                    resultUrl = bang.url
+                    trimmedQuery = searchTerm
+                    break
+                end
+            end
+            if resultUrl then break end
         end
     end
 
-    -- Use fallback search engine
-    local searchUrl = formatUrl(FallbackSearchEngine, trimmedQuery)
-    return searchUrl
+    -- If still no result, check if it's an Arweave transaction ID
+    if not resultUrl then
+        local txId, hasBang
+        if #trimmedQuery == 43 and trimmedQuery:match("^[a-zA-Z0-9_-]+$") then
+            txId = trimmedQuery
+            hasBang = false
+        elseif #trimmedQuery == 44 and trimmedQuery:match("^![a-zA-Z0-9_-]+$") then
+            txId = trimmedQuery:sub(2) -- Remove leading '!'
+            hasBang = true
+        elseif #trimmedQuery == 44 and trimmedQuery:match("^[a-zA-Z0-9_-]+!$") then
+            txId = trimmedQuery:sub(1, -2) -- Remove trailing '!'
+            hasBang = true
+        end
+
+        if txId then
+            print("Found Tx: " .. txId)
+            if hasBang then
+                resultUrl = DefaultArweaveGateway
+            else
+                resultUrl = ArweaveExplorer
+            end
+            trimmedQuery = txId
+        end
+    end
+
+    -- If still no result, use fallback search engine
+    if not resultUrl then
+        resultUrl = FallbackSearchEngine
+    end
+
+    -- Format and return the final URL
+    return formatUrl(resultUrl, trimmedQuery)
 end
 
 -- Define actions
@@ -211,6 +265,29 @@ local actions = {
             }
         end
     },
+    ArnsExists = {
+        fields = { "Name" },
+        handler = function(msg)
+            local res = ao.receive({ Action = "ArNSExistsResponse" })
+            extractNames(res.Data)
+            print("Fetched ARNS domains: " .. #arnsDomains)
+
+            local nameExists = false
+            for _, name in ipairs(arnsDomains) do
+                if name == nameToCheck then
+                    nameExists = true
+                    break
+                end
+            end
+
+            print("Name " .. nameToCheck .. " exists: " .. tostring(nameExists))
+            return {
+                success = true,
+                name = nameToCheck,
+                exists = nameExists
+            }
+        end
+    },
     Search = {
         fields = { "Query" },
         handler = function(msg)
@@ -281,5 +358,7 @@ for action, _ in pairs(actions) do
         handleAction
     )
 end
+
+addDefaultBangs()
 
 print("tinyNav Handlers Script completed")

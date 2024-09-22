@@ -21,6 +21,8 @@ const bangEditorRef = ref(null);
 const isDataLoaded = ref(false);
 const showResult = ref(false);
 const isBangEditorLoading = ref(false);
+const isLoading = ref(false);
+const loadingMessage = ref("");
 
 const {
     isWalletConnected,
@@ -40,9 +42,11 @@ const {
     updateExplorer,
     fetchAndLoadData,
     resetState,
+    isLoading: isBangsLoading,
 } = useBangs();
 
-const { searchResult, handleSearch: originalHandleSearch } = useSearch();
+const { searchResult, handleSearch: originalHandleSearch } =
+    useSearch(isLoading);
 const {
     currentView,
     isHeadless,
@@ -64,11 +68,17 @@ provide("wallet", {
 });
 
 provide("cachedBangsData", ref(null));
+provide("isLoading", isLoading);
 
 const handleSearch = async (query) => {
+    isLoading.value = true;
     showResult.value = false;
-    await originalHandleSearch(query);
-    showResult.value = true;
+    try {
+        await originalHandleSearch(query);
+        showResult.value = true;
+    } finally {
+        isLoading.value = false;
+    }
 };
 
 function handleSearchShortcut() {
@@ -101,11 +111,18 @@ function toggleView() {
     if (currentView.value === "bangEditor") {
         isBangEditorLoading.value = true;
     }
+    nextTick(() => {
+        if (currentView.value === "search" && searchBarRef.value) {
+            searchBarRef.value.focusInput();
+        } else if (currentView.value === "bangEditor" && bangEditorRef.value) {
+            bangEditorRef.value.focusNewBangInput();
+        }
+    });
 }
 
 async function onWalletConnected(method, address) {
     console.log("Wallet connected:", address, "with method:", method);
-    store.isLoading = true;
+    isLoading.value = true;
     try {
         await fetchAndLoadData();
         if (searchBarRef.value) {
@@ -114,30 +131,31 @@ async function onWalletConnected(method, address) {
     } catch (error) {
         console.error("Error during wallet connection:", error);
     } finally {
-        store.isLoading = false;
+        isLoading.value = false;
     }
 }
 
 async function onWalletDisconnected() {
     console.log("Wallet disconnected");
-    store.isLoading = true;
+    isLoading.value = true;
     try {
         await disconnectWallet();
         resetState();
         isDataLoaded.value = false;
     } finally {
-        store.isLoading = false;
+        isLoading.value = false;
     }
 }
 
 const debouncedFetchAndLoadData = debounce(async () => {
     if (!isDataLoaded.value && isWalletConnected.value && processId.value) {
         console.log("Fetching and loading data...");
+        isLoading.value = true;
         try {
             await fetchAndLoadData();
             isDataLoaded.value = true;
         } finally {
-            store.isLoading = false;
+            isLoading.value = false;
         }
     }
 }, 300);
@@ -212,16 +230,13 @@ watch(isWalletConnected, (newValue) => {
                     @walletDisconnected="onWalletDisconnected"
                 />
             </div>
-            <div class="search-section">
-                <h1
-                    class="title"
-                    :class="{ 'hide-on-mobile': currentView === 'bangEditor' }"
-                >
-                    tinyNav
-                </h1>
+            <div class="search-section" v-show="currentView === 'search'">
+                <h1 class="title">tinyNav</h1>
                 <SearchBar
                     v-if="currentView === 'search'"
+                    ref="searchBarRef"
                     @search="handleSearch"
+                    :customBangs="bangs"
                 />
                 <a
                     v-show="showResult"
@@ -237,6 +252,7 @@ watch(isWalletConnected, (newValue) => {
             </div>
             <BangEditor
                 v-if="showBangEditor"
+                ref="bangEditorRef"
                 :bangs="bangs"
                 :fallbackSearchEngine="fallbackSearchEngine"
                 :arweaveExplorer="arweaveExplorer"
@@ -248,16 +264,11 @@ watch(isWalletConnected, (newValue) => {
                 @loading-complete="isBangEditorLoading = false"
                 :isLoading="isBangEditorLoading"
             />
-
-            <!-- <div v-if="searchResult" class="result fade-out">
-                {{ searchResult }}
-            </div> -->
         </div>
         <KeyboardShortcuts />
     </template>
-    <LoadingScreen />
+    <LoadingScreen v-if="isLoading" :message="loadingMessage" />
 </template>
-
 <style>
 :root {
     --bg-color: #ffffff;
@@ -366,6 +377,7 @@ h1 {
     text-align: center;
     animation: fadeInOut 4s ease-out;
     color: var(--button-hover-bg);
+    text-overflow: ellipsis;
 }
 
 @keyframes fadeInOut {
@@ -499,6 +511,7 @@ button:hover {
 
     .search-section {
         width: 95%;
+        margin-top: 15vh;
     }
 
     input[type="text"],

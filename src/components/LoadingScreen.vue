@@ -1,9 +1,12 @@
 <template>
-    <div v-if="store.isLoading" class="loading-overlay">
+    <div v-if="isLoading" class="loading-overlay">
         <div class="loading-spinner"></div>
+        <p class="loading-message">{{ message }}</p>
     </div>
 </template>
 
 <script setup>
-import { store } from "../store";
+import { inject } from "vue";
+
+const isLoading = inject("isLoading");
 </script>
