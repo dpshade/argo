@@ -250,20 +250,21 @@ watch(isWalletConnected, (newValue) => {
                     {{ searchResult }}
                 </a>
             </div>
-            <BangEditor
-                v-if="showBangEditor"
-                ref="bangEditorRef"
-                :bangs="bangs"
-                :fallbackSearchEngine="fallbackSearchEngine"
-                :arweaveExplorer="arweaveExplorer"
-                :walletManager="walletManager"
-                @update:bangs="updateBangs"
-                @update:fallbackSearchEngine="updateFallback"
-                @update:arweaveExplorer="updateExplorer"
-                @force-update="() => fetchAndLoadData(true)"
-                @loading-complete="isBangEditorLoading = false"
-                :isLoading="isBangEditorLoading"
-            />
+            <div class="bang-editor-wrapper" v-if="showBangEditor">
+                <BangEditor
+                    ref="bangEditorRef"
+                    :bangs="bangs"
+                    :fallbackSearchEngine="fallbackSearchEngine"
+                    :arweaveExplorer="arweaveExplorer"
+                    :walletManager="walletManager"
+                    @update:bangs="updateBangs"
+                    @update:fallbackSearchEngine="updateFallback"
+                    @update:arweaveExplorer="updateExplorer"
+                    @force-update="() => fetchAndLoadData(true)"
+                    @loading-complete="isBangEditorLoading = false"
+                    :isLoading="isBangEditorLoading"
+                />
+            </div>
         </div>
         <KeyboardShortcuts />
     </template>
@@ -273,7 +274,7 @@ watch(isWalletConnected, (newValue) => {
 :root {
     --bg-color: #ffffff;
     --container-bg: #fafafa;
-    --input-bg: #f5f5f5;
+    --input-bg: #f0f0f0;
     --input-focus-bg: #f0f0f0;
     --button-bg: #d2c0a6;
     --button-hover-bg: #c0ab8e;
@@ -312,6 +313,7 @@ body {
         Helvetica, Arial, sans-serif;
     background-color: var(--bg-color);
     color: var(--text-color);
+    overflow-y: hidden;
 }
 
 #app {
@@ -321,6 +323,7 @@ body {
     flex-direction: column;
     box-sizing: border-box;
     position: relative;
+    overflow-y: hidden;
 }
 
 .container {
@@ -334,6 +337,14 @@ body {
     position: relative;
     width: 100%;
     box-sizing: border-box;
+}
+
+.bang-editor-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    width: 100%;
 }
 
 .top-right {
@@ -365,8 +376,8 @@ h1 {
 .result {
     position: absolute;
     top: 100%;
-    left: 0;
-    right: 0;
+    left: 50%;
+    transform: translateX(-50%);
     margin-top: 20px;
     padding: 15px 0;
     border-bottom: 1px solid var(--border-color);
@@ -378,21 +389,22 @@ h1 {
     animation: fadeInOut 4s ease-out;
     color: var(--button-hover-bg);
     text-overflow: ellipsis;
+    width: 80%;
 }
 
 @keyframes fadeInOut {
     0% {
         opacity: 0;
-        transform: translateY(-10px);
+        transform: translate(-50%, -10px);
     }
     10%,
     90% {
         opacity: 1;
-        transform: translateY(0);
+        transform: translate(-50%, 0);
     }
     100% {
         opacity: 0;
-        transform: translateY(-10px);
+        transform: translate(-50%, -10px);
     }
 }
 
@@ -477,6 +489,11 @@ button:hover {
     body {
         font-size: 14px;
         -webkit-text-size-adjust: 100%;
+        overflow-y: auto;
+    }
+
+    .bang-editor-wrapper {
+        align-items: flex-start;
     }
 
     .hide-on-mobile {

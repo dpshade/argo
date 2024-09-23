@@ -12,10 +12,10 @@ local function addDefaultBangs()
     if DefaultsSet then return end
 
     local defaultBangs = {
-        { "!yt",   "https://www.youtube.com/results?search_query=%s" },
-        { "!gh",   "https://github.com/search?q=%s" },
-        { "!a",    "https://www.amazon.com/s?k=%s" },
-        { "!aos2", "https://hackmd.io/OoOsMsd9RNazNrrfiJcqEw" },
+        { "yt",   "https://www.youtube.com/results?search_query=%s" },
+        { "gh",   "https://github.com/search?q=%s" },
+        { "a",    "https://www.amazon.com/s?k=%s" },
+        { "aos2", "https://hackmd.io/OoOsMsd9RNazNrrfiJcqEw" },
     }
     for _, bang in ipairs(defaultBangs) do
         if not Bangs[bang[1]] then
@@ -36,8 +36,8 @@ local function arnsExists(name)
 
     if res.Data then
         local success, data = pcall(json.decode, res.Data)
-        if success and not data.error then
-            return data.exists
+        if success and data and not data.error then
+            return data.exists == "true"
         end
     end
     return false
@@ -74,18 +74,14 @@ end
 local function handleSearch(query)
     local trimmedQuery = query:gsub("^%s*(.-)%s*$", "%1")
 
-    -- Check for bangs at the start or end
     for name, bang in pairs(Bangs) do
-        if trimmedQuery:sub(1, #name) == name then
-            local searchTerm = trimmedQuery:sub(#name + 1):gsub("^%s*", "")
-            return formatUrl(bang.url, searchTerm)
-        elseif trimmedQuery:sub(- #name) == name then
-            local searchTerm = trimmedQuery:sub(1, - #name - 1):gsub("%s*$", "")
+        local pattern = "^" .. name .. "%s"
+        if trimmedQuery:match(pattern) or trimmedQuery:match("%s" .. name .. "$") then
+            local searchTerm = trimmedQuery:gsub(pattern, ""):gsub("%s*" .. name .. "$", "")
             return formatUrl(bang.url, searchTerm)
         end
     end
 
-    -- Check if it's an Arweave transaction ID
     if #trimmedQuery == 43 and trimmedQuery:match("^[a-zA-Z0-9_-]+$") then
         return formatUrl(ArweaveExplorer, trimmedQuery)
     elseif #trimmedQuery == 44 and (trimmedQuery:match("^![a-zA-Z0-9_-]+$") or trimmedQuery:match("^[a-zA-Z0-9_-]+!$")) then
@@ -93,14 +89,10 @@ local function handleSearch(query)
         return formatUrl(DefaultArweaveGateway, txId)
     end
 
-    -- Check if it's an Arns name
-    if not trimmedQuery:find("%s") then
-        if arnsExists(trimmedQuery) then
-            return trimmedQuery .. ".arweave.net"
-        end
+    if not trimmedQuery:find("%s") and arnsExists(trimmedQuery) then
+        return trimmedQuery .. ".arweave.net"
     end
 
-    -- Use fallback search engine
     return formatUrl(FallbackSearchEngine, trimmedQuery)
 end
 
@@ -178,7 +170,7 @@ local function handleAction(msg)
     return actions[action](msg)
 end
 
-for action in pairs(actions) do
+for action, handler in pairs(actions) do
     Handlers.add(action,
         Handlers.utils.hasMatchingTag('Action', action),
         function(msg)

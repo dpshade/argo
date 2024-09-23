@@ -25,6 +25,7 @@ const emit = defineEmits([
     "update:fallbackSearchEngine",
     "update:arweaveExplorer",
     "force-update",
+    "toggle-view",
 ]);
 
 const cachedBangsData = inject("cachedBangsData");
@@ -71,6 +72,51 @@ watch(
     },
 );
 
+const searchQuery = ref("");
+const isSearchExpanded = ref(false);
+const filteredBangs = ref([]);
+const isSaving = ref(false);
+const searchInputRef = ref(null);
+
+const toggleSearch = () => {
+    isSearchExpanded.value = !isSearchExpanded.value;
+    if (isSearchExpanded.value) {
+        nextTick(() => {
+            searchInputRef.value.focus();
+        });
+    } else if (!searchQuery.value) {
+        isSearchExpanded.value = false;
+    }
+};
+
+const filterBangs = () => {
+    if (searchQuery.value) {
+        filteredBangs.value = bangs.value.filter(
+            (bang) =>
+                bang.name
+                    .toLowerCase()
+                    .includes(searchQuery.value.toLowerCase()) ||
+                bang.url
+                    .toLowerCase()
+                    .includes(searchQuery.value.toLowerCase()),
+        );
+    } else {
+        filteredBangs.value = bangs.value;
+    }
+};
+
+watch(
+    () => props.bangs,
+    () => {
+        filterBangs();
+    },
+    { immediate: true },
+);
+
+watch(searchQuery, (newValue) => {
+    isSearchExpanded.value = true;
+});
+
 function formatUrl(url) {
     return url.replace(/^https?:\/\/(www\.)?/, "");
 }
@@ -105,6 +151,7 @@ async function addBang() {
 }
 
 async function removeBang(bang) {
+    bang.isSaving = true;
     try {
         await deleteBang(bang.name);
         bangs.value = bangs.value.filter((b) => b.id !== bang.id);
@@ -114,6 +161,8 @@ async function removeBang(bang) {
     } catch (error) {
         console.error("Error deleting bang:", error);
         alert(`Failed to delete bang: ${error.message}`);
+    } finally {
+        bang.isSaving = false;
     }
 }
 
@@ -134,45 +183,57 @@ function updateBangUrl(bang, newUrl) {
         bang.name !== bang.originalName || bang.url !== bang.originalUrl;
 }
 
-async function saveBangChanges(bang) {
-    if (bang.isSaving) return;
+function updateDefault(key, value) {
+    defaults.value[key] = value;
+}
 
-    bang.isSaving = true;
+const hasUnsavedChanges = computed(() => {
+    return (
+        bangs.value.some((bang) => bang.isModified) ||
+        defaults.value.fallbackSearchEngine !== props.fallbackSearchEngine ||
+        defaults.value.arweaveExplorer !== props.arweaveExplorer
+    );
+});
+
+async function saveAllChanges() {
+    if (!hasUnsavedChanges.value || isSaving.value) return;
+
+    isSaving.value = true;
     try {
-        const oldName = bang.originalName || bang.name;
-        const result = await updateBang(oldName, bang.name, bang.url);
-        if (result.Error) throw new Error(result.Error);
+        for (const bang of bangs.value) {
+            if (bang.isModified) {
+                await updateBang(bang.originalName, bang.name, bang.url);
+                bang.originalName = bang.name;
+                bang.originalUrl = bang.url;
+                bang.isModified = false;
+            }
+        }
 
-        bang.originalName = bang.name;
-        bang.originalUrl = bang.url;
-        bang.isModified = false;
+        if (
+            defaults.value.fallbackSearchEngine !== props.fallbackSearchEngine
+        ) {
+            await updateFallbackSearchEngine(
+                defaults.value.fallbackSearchEngine,
+            );
+            emit(
+                "update:fallbackSearchEngine",
+                defaults.value.fallbackSearchEngine,
+            );
+        }
+
+        if (defaults.value.arweaveExplorer !== props.arweaveExplorer) {
+            await updateArweaveExplorer(defaults.value.arweaveExplorer);
+            emit("update:arweaveExplorer", defaults.value.arweaveExplorer);
+        }
 
         updateCachedBangs();
         emit("update:bangs", bangs.value);
         emit("force-update");
     } catch (error) {
-        console.error("Error saving bang:", error);
-        alert(`Failed to update bang: ${error.message}`);
+        console.error("Error saving changes:", error);
+        alert(`Failed to save changes: ${error.message}`);
     } finally {
-        bang.isSaving = false;
-    }
-}
-
-async function saveDefault(key) {
-    try {
-        const updateFunction =
-            key === "fallbackSearchEngine"
-                ? updateFallbackSearchEngine
-                : updateArweaveExplorer;
-
-        const urlToUpdate = defaults.value[key];
-
-        await updateFunction(urlToUpdate);
-        emit(`update:${key}`, urlToUpdate);
-        emit("force-update");
-    } catch (error) {
-        console.error(`Error updating ${key}:`, error);
-        alert(`Failed to update ${key}: ${error.message}`);
+        isSaving.value = false;
     }
 }
 
@@ -193,87 +254,136 @@ function focusNewBangInput() {
     });
 }
 
+function handleKeyDown(event, type, index) {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        if (type === "bang") {
+            saveAllChanges();
+        } else if (type === "default") {
+            saveAllChanges();
+        }
+    }
+}
+
 defineExpose({ focusNewBangInput });
 </script>
 
 <template>
     <div class="bang-editor">
         <h2>Edit Bangs</h2>
+        <div class="top-actions">
+            <div
+                class="search-container"
+                :class="{ expanded: isSearchExpanded || searchQuery }"
+            >
+                <input
+                    v-show="isSearchExpanded || searchQuery"
+                    v-model="searchQuery"
+                    @input="filterBangs"
+                    @blur="if (!searchQuery) isSearchExpanded = false;"
+                    placeholder="Filter bangs..."
+                    class="search-input"
+                    ref="searchInputRef"
+                />
+                <button @click="toggleSearch" class="icon-button search-button">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        width="24"
+                        height="24"
+                    >
+                        <title>magnify</title>
+                        <path
+                            d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"
+                        />
+                    </svg>
+                </button>
+            </div>
+            <button
+                @click="saveAllChanges"
+                class="icon-button save-all-button"
+                :class="{
+                    'unsaved-changes': hasUnsavedChanges,
+                    saving: isSaving,
+                }"
+                :disabled="!hasUnsavedChanges || isSaving"
+            >
+                <svg
+                    v-if="!isSaving"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    width="24"
+                    height="24"
+                >
+                    <path fill="none" d="M0 0h24v24H0z" />
+                    <path
+                        d="M7 19v-6h10v6h2V7.828L16.172 5H5v14h2zM4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm5 12v4h6v-4H9z"
+                    />
+                </svg>
+                <svg
+                    v-else
+                    class="spinner"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    width="24"
+                    height="24"
+                >
+                    <path fill="none" d="M0 0h24v24H0z" />
+                    <path
+                        d="M12 2a1 1 0 0 1 1 1v3a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm0 15a1 1 0 0 1 1 1v3a1 1 0 0 1-2 0v-3a1 1 0 0 1 1-1zm8.66-10a1 1 0 0 1-.366 1.366l-2.598 1.5a1 1 0 1 1-1-1.732l2.598-1.5A1 1 0 0 1 20.66 7zM7.67 14.5a1 1 0 0 1-.366 1.366l-2.598 1.5a1 1 0 1 1-1-1.732l2.598-1.5a1 1 0 0 1 1.366.366zM20.66 17a1 1 0 0 1-1.366.366l-2.598-1.5a1 1 0 0 1 1-1.732l2.598 1.5A1 1 0 0 1 20.66 17zM7.67 9.5a1 1 0 0 1-1.366-.366l-2.598-1.5a1 1 0 1 1 1-1.732l2.598 1.5A1 1 0 0 1 7.67 9.5z"
+                    />
+                </svg>
+            </button>
+        </div>
         <ul class="bang-list">
-            <li v-for="bang in bangs" :key="bang.id" class="bang-item">
+            <li v-for="bang in filteredBangs" :key="bang.id" class="bang-item">
                 <div class="bang-form">
                     <input
                         :id="`bang-name-${bang.id}`"
                         :value="bang.name"
                         @input="updateBangName(bang, $event.target.value)"
+                        @keydown="handleKeyDown($event, 'bang', bang.id)"
                         placeholder="Bang name"
                         required
-                        :disabled="bang.isSaving"
                     />
                     <input
                         :value="bang.url"
                         @input="updateBangUrl(bang, $event.target.value)"
+                        @keydown="handleKeyDown($event, 'bang', bang.id)"
                         placeholder="URL (use %s for query)"
                         required
-                        :disabled="bang.isSaving"
                     />
-                    <div class="bang-actions">
-                        <button
-                            @click="saveBangChanges(bang)"
-                            class="icon-button save-button"
-                            :class="{ modified: bang.isModified }"
-                            :title="
-                                bang.isSaving ? 'Saving...' : 'Save changes'
-                            "
-                            :disabled="bang.isSaving || !bang.isModified"
+                    <button
+                        @click="removeBang(bang)"
+                        class="icon-button delete-button"
+                        title="Delete bang"
+                    >
+                        <svg
+                            v-if="!bang.isSaving"
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            width="24"
+                            height="24"
                         >
-                            <template v-if="!bang.isSaving">
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    viewBox="0 0 24 24"
-                                    width="24"
-                                    height="24"
-                                >
-                                    <path fill="none" d="M0 0h24v24H0z" />
-                                    <path
-                                        d="M7 19v-6h10v6h2V7.828L16.172 5H5v14h2zM4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm5 12v4h6v-4H9z"
-                                    />
-                                </svg>
-                            </template>
-                            <template v-else>
-                                <svg
-                                    class="spinner"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    viewBox="0 0 24 24"
-                                    width="24"
-                                    height="24"
-                                >
-                                    <path fill="none" d="M0 0h24v24H0z" />
-                                    <path
-                                        d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12h2a8 8 0 1 0 8-8V2z"
-                                    />
-                                </svg>
-                            </template>
-                        </button>
-                        <button
-                            @click="removeBang(bang)"
-                            class="icon-button delete-button"
-                            title="Delete bang"
-                            :disabled="bang.isSaving"
+                            <path fill="none" d="M0 0h24v24H0z" />
+                            <path
+                                d="M17 6h5v2h-2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8H2V6h5V3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3zm1 2H6v12h12V8zm-9 3h2v6H9v-6zm4 0h2v6h-2v-6zM9 4v2h6V4H9z"
+                            />
+                        </svg>
+                        <svg
+                            v-else
+                            class="spinner"
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            width="24"
+                            height="24"
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                width="24"
-                                height="24"
-                            >
-                                <path fill="none" d="M0 0h24v24H0z" />
-                                <path
-                                    d="M17 6h5v2h-2v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8H2V6h5V3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3zm1 2H6v12h12V8zm-9 3h2v6H9v-6zm4 0h2v6h-2v-6zM9 4v2h6V4H9z"
-                                />
-                            </svg>
-                        </button>
-                    </div>
+                            <path fill="none" d="M0 0h24v24H0z" />
+                            <path
+                                d="M12 2a1 1 0 0 1 1 1v3a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm0 15a1 1 0 0 1 1 1v3a1 1 0 0 1-2 0v-3a1 1 0 0 1 1-1zm8.66-10a1 1 0 0 1-.366 1.366l-2.598 1.5a1 1 0 1 1-1-1.732l2.598-1.5A1 1 0 0 1 20.66 7zM7.67 14.5a1 1 0 0 1-.366 1.366l-2.598 1.5a1 1 0 1 1-1-1.732l2.598-1.5a1 1 0 0 1 1.366.366zM20.66 17a1 1 0 0 1-1.366.366l-2.598-1.5a1 1 0 0 1 1-1.732l2.598 1.5A1 1 0 0 1 20.66 17zM7.67 9.5a1 1 0 0 1-1.366-.366l-2.598-1.5a1 1 0 1 1 1-1.732l2.598 1.5A1 1 0 0 1 7.67 9.5z"
+                            />
+                        </svg>
+                    </button>
                 </div>
             </li>
         </ul>
@@ -294,7 +404,7 @@ defineExpose({ focusNewBangInput });
 
         <div class="divider"></div>
         <div class="defaults-section">
-            <h3>Default Search Engines</h3>
+            <h3>Defaults</h3>
             <div
                 v-for="(value, key) in defaults"
                 :key="key"
@@ -303,16 +413,14 @@ defineExpose({ focusNewBangInput });
                 <span class="default-name">{{
                     key === "fallbackSearchEngine" ? "Search" : "Arweave"
                 }}</span>
-                <form @submit.prevent="saveDefault(key)" class="default-form">
+                <form class="default-form">
                     <input
                         :value="formatUrl(value)"
-                        @input="defaults[key] = $event.target.value"
+                        @input="updateDefault(key, $event.target.value)"
+                        @keydown="handleKeyDown($event, 'default', key)"
                         :placeholder="`Enter ${key} URL`"
                         required
                     />
-                    <button type="submit" class="full-width-button">
-                        Save
-                    </button>
                 </form>
             </div>
         </div>
@@ -347,9 +455,12 @@ input {
     list-style-type: none;
     padding: 0;
     margin-bottom: 24px;
+    margin-top: 6px;
     background-color: var(--input-bg);
     border-radius: 8px;
-    overflow: hidden;
+    max-height: 30vh;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .bang-list li {
@@ -385,22 +496,16 @@ input {
 }
 
 .bang-form input:first-child {
-    width: 15%;
+    width: 12.2%;
     font-weight: bold;
     color: var(--button-hover-bg);
     border-right: 1px solid var(--border-color);
 }
 
 .bang-form input:nth-child(2) {
-    width: 70%;
+    width: 74%;
     font-size: 14px;
 }
-
-/* .highlighted-input {
-    font-weight: bold;
-    font-style: italic;
-    color: var(--button-hover-bg);
-} */
 
 .formatted-input {
     padding: 16px;
@@ -432,43 +537,41 @@ input {
     flex-grow: 1;
 }
 
-.bang-actions {
+.search-container {
     display: flex;
+    align-items: center;
+    transition: width 0.3s ease;
+    width: 24px;
+    overflow: hidden;
 }
 
-.icon-button.save-button {
-    opacity: 0.5;
+.search-container.expanded {
+    width: 200px;
 }
 
-.icon-button.save-button.modified {
-    opacity: 1;
+.search-input {
+    flex-grow: 1;
+    padding: 8px;
+    border: none;
+    border-radius: 4px;
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    font-size: 14px;
+    outline: none;
 }
 
-.icon-button.save-button.modified svg {
-    fill: orange;
+.search-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.icon-button.save-button.modified:hover {
-    transform: scale(1.1);
-}
-
-.icon-button.save-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-}
-
-/* Styles for the delete button */
-.icon-button.delete-button:hover {
-    transform: scale(1.1);
-}
-
-.icon-button.delete-button:hover svg {
-    fill: red;
-}
-
-.icon-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+.search-button svg {
+    fill: var(--text-color);
 }
 
 .icon-button {
@@ -482,52 +585,18 @@ input {
 }
 
 .icon-button svg {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     fill: var(--text-color);
     transition: fill 0.2s;
 }
 
-.spinner {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
-}
-
-.icon-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-input:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-}
-
-.icon-button {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 4px;
-    transition: transform 0.2s;
-}
-
-.icon-button svg {
-    width: 20px;
-    height: 20px;
-    fill: var(--text-color);
-    transition: fill 0.2s;
-}
-
-.icon-button.save-button.modified:hover {
+.icon-button.delete-button:hover {
     transform: scale(1.1);
+}
+
+.icon-button.delete-button:hover svg {
+    fill: red;
 }
 
 .add-bang-form,
@@ -612,12 +681,53 @@ input:disabled {
     background-color: var(--input-bg);
     color: var(--text-color);
     font-size: 14px;
-    border-radius: 6px 0 0 6px;
+    border-radius: 6px;
 }
 
-.default-form .full-width-button {
-    width: 14%;
-    border-radius: 0 6px 6px 0;
+.top-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.save-all-button {
+    margin-left: 8px;
+}
+
+.save-all-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.save-all-button.unsaved-changes:not(:disabled) svg {
+    fill: orange;
+}
+
+.spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.toggle-view-button {
+    padding: 8px 16px;
+    background-color: var(--button-bg);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.toggle-view-button:hover {
+    background-color: var(--button-hover-bg);
 }
 
 @media screen and (max-width: 767px) {
@@ -645,10 +755,6 @@ input:disabled {
         text-align: center;
         width: 100%;
         padding: 8px;
-    }
-
-    .bang-actions {
-        justify-content: center;
     }
 
     .add-bang-form,
