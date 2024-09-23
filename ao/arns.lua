@@ -1,7 +1,8 @@
+-- ProcessID = ihs9ILgtonyPraKmOOEXhS4JwXU2k_EgMJz1ZdL8Umo
 local json = require("json")
 
 -- Initialize arnsDomains table
-arnsDomains = arnsDomains or {}
+local arnsDomains = {}
 
 -- Helper functions
 local function clearTable(t)
@@ -10,7 +11,11 @@ end
 
 local function extractNames(jsonString)
     clearTable(arnsDomains)
-    local data = json.decode(jsonString)
+    local success, data = pcall(json.decode, jsonString)
+    if not success then
+        print("Error decoding JSON: " .. data)
+        return
+    end
     if data.items and type(data.items) == "table" then
         for _, item in ipairs(data.items) do
             if item.name then
@@ -21,7 +26,7 @@ local function extractNames(jsonString)
 end
 
 local function sendErrorResponse(msg, errorMessage)
-    msg.reply({
+    ao.send({
         Target = msg.From,
         Tags = { ["Action"] = "ArnsExistsResponse" },
         Data = json.encode({ error = errorMessage })
@@ -38,15 +43,23 @@ local function checkNameExists(nameToCheck)
 end
 
 -- Initialize arnsDomains
-ao.send({
-    Target = "agYcCFJtrMG6cqMuZfskIkFTGvUPddICmtQSBIoPdiA",
-    Action = "Paginated-Records",
-    ["Limit"] = "10000"
-})
+local function initializeArnsDomains()
+    ao.send({
+        Target = "agYcCFJtrMG6cqMuZfskIkFTGvUPddICmtQSBIoPdiA",
+        Action = "Paginated-Records",
+        ["Limit"] = "10000"
+    })
 
-local res = Receive({ Action = "Records-Notice" })
-extractNames(res.Data)
-print(#arnsDomains)
+    local res, err = Receive({ Action = "Records-Notice" })
+    if not res then
+        print("Error: Failed to receive Records-Notice. Error: " .. (err or "Unknown"))
+        return
+    end
+    extractNames(res.Data)
+    print(string.format("Initialized %d ArNS domains", #arnsDomains))
+end
+
+initializeArnsDomains()
 
 -- Handlers
 Handlers.add('ArnsExists',
@@ -54,56 +67,23 @@ Handlers.add('ArnsExists',
     function(msg)
         print("ArnsExists handler called")
         local nameToCheck = msg.Tags["Name"]
-        local userAddress = msg.Tags["UserAddress"]
 
         if not nameToCheck then
             return sendErrorResponse(msg, "Missing name to check")
         end
 
-        if not userAddress then
-            return sendErrorResponse(msg, "Missing user address")
-        end
-
-        print("Name to check: " .. nameToCheck)
-        print("User address: " .. userAddress)
-
-        ao.send({
-            Target = "fZnoaLqIP1zk3C1AZ9s546MmOdE-ujjOaGtMzj431cw",
-            Action = "GetUser",
-            ["UserAddress"] =
-                userAddress
-        })
-
-        local res = Receive({ Action = "GetUserResponse" })
-        if not res or not res.Data then
-            return sendErrorResponse(msg, "Invalid response from GetUser")
-        end
-
-        local userData = json.decode(res.Data)
-        if not userData or not userData.processId then
-            return sendErrorResponse(msg, "Invalid user data")
-        end
-
-        local userPid = userData.processId
-        print("User PID found: " .. userPid)
-
-        if not arnsDomains then
-            return sendErrorResponse(msg, "arnsDomains is not defined")
-        end
-
         local nameExists = checkNameExists(nameToCheck)
 
-        print("Name " .. nameToCheck .. " exists: " .. tostring(nameExists))
-        print("User address: " .. userAddress)
-        print("User PID: " .. userPid)
+        print(string.format("Name %s exists: %s", nameToCheck, tostring(nameExists)))
+        -- print(string.format("User address: %s", userAddress))
+        -- print(string.format("User PID: %s", userPid))
 
+        print("Trying to send back to: " .. msg.From)
         msg.reply({
-            Target = userPid,
-            Action = "ArnsExistsResponse",
             Data = json.encode({
-                success = true,
+                success = "true",
                 name = nameToCheck,
-                exists = nameExists
+                exists = tostring(nameExists)
             })
         })
     end
@@ -113,8 +93,8 @@ print("ArnsExists Updated")
 Handlers.add('AllArns',
     Handlers.utils.hasMatchingTag('Action', 'AllArns'),
     function(msg)
-        print("AllArnsCalled")
-        msg.reply({
+        print("AllArns Called")
+        ao.send({
             Target = msg.From,
             Action = "AllArnsResponse",
             Data = json.encode({

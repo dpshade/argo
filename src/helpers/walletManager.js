@@ -7,7 +7,9 @@ import {
   result,
   spawn,
   dryrun,
+  assign,
 } from "@permaweb/aoconnect";
+import { arGql, GQLUrls } from "ar-gql";
 
 const USER_PROCESS_MAP_ID = "fZnoaLqIP1zk3C1AZ9s546MmOdE-ujjOaGtMzj431cw";
 const USER_PROCESS_MODULE = "ffvkmPM1jW71hFlBpVbaIapBa_Wl6UIwfdTkDNqsKNw";
@@ -134,8 +136,77 @@ class WalletManager {
     }
   }
 
+  async sendSearchRequest(query) {
+    this._checkWalletConnection();
+    if (!this.processId) {
+      throw new Error(
+        "Process ID not set. Please ensure the user process is created.",
+      );
+    }
+
+    try {
+      const messageId = await message({
+        process: this.processId,
+        tags: [{ name: "Action", value: "Search" }],
+        signer: this.signer,
+        data: JSON.stringify({ Query: query }),
+      });
+
+      console.log("Search message sent:", messageId);
+
+      let transactionDetails;
+      let attempts = 0;
+      const maxAttempts = 10;
+      const delayBetweenAttempts = 1000;
+
+      while (attempts < maxAttempts) {
+        transactionDetails = await this.executeTransactionQuery(
+          this.processId,
+          messageId,
+          10,
+          true,
+        );
+
+        console.log(`GraphQL query result (attempt ${attempts + 1}):`);
+        console.log(transactionDetails);
+
+        if (transactionDetails.transactions.edges.length >= 2) {
+          break; // Exit the loop if we have at least 2 edges
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, delayBetweenAttempts),
+          );
+        }
+      }
+
+      if (attempts === maxAttempts) {
+        throw new Error(
+          "Max attempts reached without finding transaction details",
+        );
+      }
+
+      const lastEdgeId =
+        transactionDetails.transactions.edges[
+          transactionDetails.transactions.edges.length - 1
+        ].node.id;
+
+      const searchResult = await assign({
+        process: this.processId,
+        message: lastEdgeId,
+      });
+
+      console.log(searchResult);
+    } catch (error) {
+      console.error("Error in sendSearchRequest:", error);
+      throw error;
+    }
+  }
+
   async dryRunAllArns() {
-    const processId = "nX64lk5_4R6StOdV3rSb-2zM0t-1FShXNoA_GIdV3ZE";
+    const processId = "ihs9ILgtonyPraKmOOEXhS4JwXU2k_EgMJz1ZdL8Umo";
     try {
       const { Messages, Error } = await dryrun({
         process: processId,
@@ -332,6 +403,112 @@ class WalletManager {
     } catch (error) {
       console.error("Error spawning process:", error);
       throw error;
+    }
+  }
+
+  createTransactionQueryTemplate(
+    fromProcessId,
+    messageId,
+    limit,
+    sortOrder,
+    cursor,
+  ) {
+    return `
+    query {
+           transactions(
+             sort: HEIGHT_DESC
+             first: ${limit}
+             after: ""
+             tags: [
+               {name: "Pushed-For", values: ["${messageId}"]},
+               {name: "From-Process", values: ["${fromProcessId}"]}
+             ]
+           ) {
+             count
+             ...MessageFields
+             __typename
+           }
+         }
+
+         fragment MessageFields on TransactionConnection {
+           edges {
+             cursor
+             node {
+               id
+               recipient
+               block {
+                 timestamp
+                 height
+               }
+               tags {
+                 name
+                 value
+               }
+               data {
+                 size
+               }
+               owner {
+                 address
+               }
+             }
+           }
+         }
+    `;
+  }
+
+  async executeTransactionQuery(
+    fromProcessId,
+    messageId,
+    limit = 10,
+    isDescending = true,
+    cursor = null,
+  ) {
+    const queryTemplate = this.createTransactionQueryTemplate(
+      fromProcessId,
+      messageId,
+      limit,
+      isDescending,
+      "",
+    );
+    const variables = {
+      fromProcessId,
+      messageId,
+      limit,
+      sortOrder: isDescending ? "DESC" : "ASC",
+      cursor,
+    };
+
+    try {
+      const result = await arGql({ endpointUrl: GQLUrls.goldsky }).run(
+        queryTemplate,
+        variables,
+      );
+      return result.data;
+    } catch (error) {
+      if (
+        error.message.includes(
+          'Value "DESC" does not exist in "SortOrder" enum',
+        )
+      ) {
+        // If "DESC" is not valid, try with "DESCENDING"
+        variables.sortOrder = isDescending ? "DESCENDING" : "ASCENDING";
+        try {
+          const result = await arGql({ endpointUrl: GQLUrls.goldsky }).run(
+            queryTemplate,
+            variables,
+          );
+          return result.data;
+        } catch (retryError) {
+          console.error(
+            "Error executing transaction query with DESCENDING:",
+            retryError,
+          );
+          throw retryError;
+        }
+      } else {
+        console.error("Error executing transaction query:", error);
+        throw error;
+      }
     }
   }
 

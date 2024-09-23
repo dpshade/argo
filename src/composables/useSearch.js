@@ -1,6 +1,5 @@
 import { ref } from "vue";
 import { walletManager } from "../helpers/walletManager";
-import { store } from "../store";
 
 export function useSearch(isLoading) {
   const searchResult = ref("");
@@ -8,7 +7,7 @@ export function useSearch(isLoading) {
   async function handleSearch(query) {
     isLoading.value = true;
     try {
-      const result = await walletManager.sendMessageToArweave(
+      const result = await walletManager.dryRunArweave(
         [
           { name: "Action", value: "Search" },
           { name: "Query", value: query },
@@ -17,7 +16,7 @@ export function useSearch(isLoading) {
         walletManager.processId,
       );
 
-      console.log(result);
+      console.log(result.Messages);
 
       if (result.Messages && result.Messages.length > 0) {
         const data = JSON.parse(result.Messages[0].Data);

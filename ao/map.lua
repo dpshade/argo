@@ -1,7 +1,15 @@
 -- ProcessID = fZnoaLqIP1zk3C1AZ9s546MmOdE-ujjOaGtMzj431cw
 local json = require("json")
 
-UserProcessMap = UserProcessMap or {}
+local UserProcessMap = {}
+
+local function sendResponse(target, action, data)
+    ao.send({
+        Target = target,
+        Tags = { ["Action"] = action },
+        Data = json.encode(data)
+    })
+end
 
 Handlers.add('AddUser',
     Handlers.utils.hasMatchingTag('Action', 'AddUser'),
@@ -13,25 +21,17 @@ Handlers.add('AddUser',
 
         if not processId then
             print("Error: Missing ProcessID")
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "AddUser" },
-                Data = json.encode({ error = "Missing ProcessID" })
-            })
+            sendResponse(msg.From, "AddUser", { error = "Missing ProcessID" })
             return
         end
 
         -- Check if the user already exists
         if UserProcessMap[walletAddress] then
-            print("User already exists: " .. walletAddress)
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "AddUser" },
-                Data = json.encode({
-                    success = false,
-                    error = "User already exists",
-                    existingProcessId = UserProcessMap[walletAddress]
-                })
+            print(string.format("User already exists: %s", walletAddress))
+            sendResponse(msg.From, "AddUser", {
+                success = false,
+                error = "User already exists",
+                existingProcessId = UserProcessMap[walletAddress]
             })
             return
         end
@@ -39,15 +39,11 @@ Handlers.add('AddUser',
         -- Associate the wallet address with the ProcessID
         UserProcessMap[walletAddress] = processId
 
-        print("User added: Wallet " .. walletAddress .. " associated with ProcessID " .. processId)
-        ao.send({
-            Target = msg.From,
-            Tags = { ["Action"] = "AddUser" },
-            Data = json.encode({
-                success = true,
-                walletAddress = walletAddress,
-                processId = processId
-            })
+        print(string.format("User added: Wallet %s associated with ProcessID %s", walletAddress, processId))
+        sendResponse(msg.From, "AddUser", {
+            success = true,
+            walletAddress = walletAddress,
+            processId = processId
         })
     end
 )
@@ -61,24 +57,16 @@ Handlers.add('GetUser',
         local processId = UserProcessMap[walletAddress]
 
         if processId then
-            print("ProcessID found for wallet " .. walletAddress .. ": " .. processId)
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "GetUserResponse" },
-                Data = json.encode({
-                    success = true,
-                    walletAddress = walletAddress,
-                    processId = processId
-                })
+            print(string.format("ProcessID found for wallet %s: %s", walletAddress, processId))
+            sendResponse(msg.From, "GetUserResponse", {
+                success = true,
+                walletAddress = walletAddress,
+                processId = processId
             })
         else
-            print("No ProcessID found for wallet " .. walletAddress)
-            ao.send({
-                Target = msg.From,
-                Tags = { ["Action"] = "GetUserResponse" },
-                Data = json.encode({
-                    success = false,
-                })
+            print(string.format("No ProcessID found for wallet %s", walletAddress))
+            sendResponse(msg.From, "GetUserResponse", {
+                success = false,
             })
         end
     end

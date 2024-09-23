@@ -1,13 +1,14 @@
+-- ProcessID = created by client
 local json = require("json")
 
 print("tinyNav Handlers Script started")
 
 -- Initialize the data storage table
-Bangs = Bangs or {}
-FallbackSearchEngine = FallbackSearchEngine or "https://google.com/search?q=%s"
-ArweaveExplorer = ArweaveExplorer or "https://ao.link/#/message/%s"
-DefaultArweaveGateway = DefaultArweaveGateway or "https://arweave.net/%s"
-DefaultAdded = DefaultAdded or false
+local Bangs = {}
+local FallbackSearchEngine = "https://google.com/search?q=%s"
+local ArweaveExplorer = "https://ao.link/#/message/%s"
+local DefaultArweaveGateway = "https://arweave.net/%s"
+local DefaultAdded = false
 
 local function addDefaultBangs()
     if DefaultAdded then return end
@@ -17,49 +18,57 @@ local function addDefaultBangs()
         { "!gh",   "https://github.com/search?q=%s" },
         { "!a",    "https://www.amazon.com/s?k=%s" },
         { "!aos2", "https://hackmd.io/OoOsMsd9RNazNrrfiJcqEw" },
-        -- { "!idea", "https://ide.betteridea.dev" },
     }
 
     for _, bang in ipairs(defaultBangs) do
         if not Bangs[bang[1]] then
             Bangs[bang[1]] = { name = bang[1], url = bang[2] }
-            print("Default bang added: " .. bang[1] .. " -> " .. bang[2])
+            print(string.format("Default bang added: %s -> %s", bang[1], bang[2]))
         end
     end
     DefaultAdded = true
 end
 
 local function arnsExists(name)
-    ao.send({
-        Target = "nX64lk5_4R6StOdV3rSb-2zM0t-1FShXNoA_GIdV3ZE",
-        Action = "ArNSExists",
-        ["Name"] = name
-    })
+    local arnsProcessId = "ihs9ILgtonyPraKmOOEXhS4JwXU2k_EgMJz1ZdL8Umo"
+    print(string.format("Sending ArnsExists request to: %s", arnsProcessId))
 
-    local res = Receive({ Action = "ArnsExistsResponse" })
-    local exists = json.decode(res.Data).exists
-    print(exists)
+    local request = {
+        Target = arnsProcessId,
+        Action = "ArnsExists",
+        Tags = {
+            ["Name"] = name
+        }
+    }
+    print("Request: " .. json.encode(request))
 
-    return exists
-end
+    local res = ao.send(request).receive(arnsProcessId)
 
--- Helper function to send response
-local function sendResponse(target, action, data)
-    ao.send({
-        Target = target,
-        Tags = { Action = action .. "Response" },
-        Data = json.encode(data)
-    })
+    print("Received ArnsExists response: " .. json.encode(res))
+
+    if not res.Data then
+        print("Error: Invalid response from ArnsExists (no Data field)")
+        return false
+    end
+
+    local success, data = pcall(json.decode, res.Data)
+    if not success then
+        print("Error: Failed to decode JSON response from ArnsExists: " .. data)
+        return false
+    end
+
+    if data.error then
+        print("Error in ArnsExists response: " .. data.error)
+        return false
+    end
+
+    print(string.format("ArnsExists result for %s: %s", name, tostring(data.exists)))
+    return data.exists
 end
 
 -- Helper function to get a field from a message, supporting both structures
 local function getField(msg, field)
-    if msg.Tags and msg.Tags[field] then
-        return msg.Tags[field]
-    elseif msg[field] then
-        return msg[field]
-    end
-    return nil
+    return msg.Tags and msg.Tags[field] or msg[field]
 end
 
 -- Helper function to check required fields
@@ -100,7 +109,7 @@ end
 -- Search function
 local function handleSearch(query)
     local trimmedQuery = query:gsub("^%s*(.-)%s*$", "%1")
-    print("Searching: " .. trimmedQuery)
+    print(string.format("Searching: %s", trimmedQuery))
     local words = {}
     for word in trimmedQuery:gmatch("%S+") do
         table.insert(words, word)
@@ -108,17 +117,7 @@ local function handleSearch(query)
 
     local resultUrl = nil
 
-    -- Check if the query is a single word (no spaces)
-    if #words == 1 then
-        -- Check if it's an ArNS name
-        local exists = arnsExists(trimmedQuery)
-        if exists then
-            -- If it exists, set the URL with the default gateway
-            resultUrl = trimmedQuery .. "." .. DefaultArweaveGateway
-        end
-    end
-
-    -- If not an ArNS name, proceed with other checks
+    -- If not an Arns name, proceed with other checks
     if not resultUrl then
         -- Check all bangs first
         for name, bang in pairs(Bangs) do
@@ -167,7 +166,7 @@ local function handleSearch(query)
         end
 
         if txId then
-            print("Found Tx: " .. txId)
+            print(string.format("Found Tx: %s", txId))
             if hasBang then
                 resultUrl = DefaultArweaveGateway
             else
@@ -193,7 +192,7 @@ local actions = {
         handler = function(msg)
             local url = ensureProtocol(getField(msg, "URL"))
             FallbackSearchEngine = url
-            print("FallbackSearchEngine updated: " .. url)
+            print(string.format("FallbackSearchEngine updated: %s", url))
             return { success = true, url = url }
         end
     },
@@ -202,7 +201,7 @@ local actions = {
         handler = function(msg)
             local url = ensureProtocol(getField(msg, "URL"))
             ArweaveExplorer = url
-            print("ArweaveExplorer updated: " .. url)
+            print(string.format("ArweaveExplorer updated: %s", url))
             return { success = true, url = url }
         end
     },
@@ -212,7 +211,7 @@ local actions = {
             local name = getField(msg, "Name")
             local url = ensureProtocol(getField(msg, "URL"))
             Bangs[name] = { name = name, url = url }
-            print("Bang created: " .. name .. " -> " .. url)
+            print(string.format("Bang created: %s -> %s", name, url))
             return { success = true, name = name, url = url }
         end
     },
@@ -224,7 +223,7 @@ local actions = {
             if not bang then
                 return { error = "Bang not found" }
             end
-            print("Bang retrieved: " .. name .. " -> " .. bang.url)
+            print(string.format("Bang retrieved: %s -> %s", name, bang.url))
             return { success = true, name = name, url = bang.url }
         end
     },
@@ -239,7 +238,7 @@ local actions = {
             end
             Bangs[oldName] = nil
             Bangs[newName] = { name = newName, url = url }
-            print("Bang updated: " .. oldName .. " -> " .. newName .. " : " .. url)
+            print(string.format("Bang updated: %s -> %s : %s", oldName, newName, url))
             return { success = true, oldName = oldName, newName = newName, url = url }
         end
     },
@@ -251,7 +250,7 @@ local actions = {
                 return { error = "Bang not found" }
             end
             Bangs[name] = nil
-            print("Bang deleted: " .. name)
+            print(string.format("Bang deleted: %s", name))
             return { success = true, name = name }
         end
     },
@@ -262,7 +261,7 @@ local actions = {
             for name, bang in pairs(Bangs) do
                 table.insert(bangList, { name = name, url = bang.url })
             end
-            print("State retrieved, bang count: " .. #bangList)
+            print(string.format("State retrieved, bang count: %d", #bangList))
             return {
                 success = true,
                 Bangs = bangList,
@@ -271,33 +270,43 @@ local actions = {
             }
         end
     },
-    ArnsExists = {
-        fields = { "Name" },
-        handler = function(msg)
-            local res = ao.receive({ Action = "ArNSExistsResponse" })
-            extractNames(res.Data)
-            print("Fetched ARNS domains: " .. #arnsDomains)
-
-            local nameExists = false
-            for _, name in ipairs(arnsDomains) do
-                if name == nameToCheck then
-                    nameExists = true
-                    break
-                end
-            end
-
-            print("Name " .. nameToCheck .. " exists: " .. tostring(nameExists))
-            return {
-                success = true,
-                name = nameToCheck,
-                exists = nameExists
-            }
-        end
-    },
     Search = {
         fields = { "Query" },
         handler = function(msg)
             local query = getField(msg, "Query")
+            print(string.format("Search query: %s", query))
+
+            -- Helper function to check if the query is a transaction ID
+            local function isTxId(str)
+                return #str == 43 and str:match("^[a-zA-Z0-9_-]+$")
+            end
+
+            -- Helper function to check if the query contains a bang
+            local function hasBang(str)
+                for name, _ in pairs(Bangs) do
+                    if str:find(name, 1, true) then
+                        return true
+                    end
+                end
+                return false
+            end
+
+            -- Check if it's an Arns name only if:
+            -- 1. There are no spaces in the query
+            -- 2. It's not a transaction ID
+            -- 3. It doesn't contain a bang
+            -- 4. It's not in the format !<tx>
+            if not query:find("%s") and
+                not isTxId(query) and
+                not hasBang(query) and
+                not (query:sub(1, 1) == "!" and isTxId(query:sub(2))) then
+                local exists = arnsExists(query)
+                if exists then
+                    return { result = query .. ".arweave.net" }
+                end
+            end
+
+            -- Proceed with regular search logic
             local result = handleSearch(query)
             return { result = result }
         end
@@ -314,9 +323,9 @@ local actions = {
                 success = true,
                 summary = {
                     bangCount = bangCount,
-                    fallbackSearchEngine = FallbackSearchEngine,
-                    arweaveExplorer = ArweaveExplorer,
-                    defaultArweaveGateway = DefaultArweaveGateway
+                    fallbackSearchEngine = tostring(FallbackSearchEngine),
+                    arweaveExplorer = tostring(ArweaveExplorer),
+                    defaultArweaveGateway = tostring(DefaultArweaveGateway)
                 }
             }
         end
@@ -328,32 +337,33 @@ local function handleAction(msg)
     local action = getField(msg, "Action")
     if not action then
         print("Error: Missing Action")
-        sendResponse(msg.From, "Error", { error = "Missing Action" })
-        return
+        return { error = "Missing Action" }
     end
-    print("Received action: " .. action)
+    print(string.format("Received action: %s", tostring(action)))
+
     local actionData = actions[action]
     if not actionData then
-        print("Error: Unknown action " .. action)
-        sendResponse(msg.From, action .. "Response", { error = "Unknown action" })
-        return
+        print(string.format("Error: Unknown action %s", action))
+        return { error = "Unknown action" }
     end
+
     local fieldsOk, missingFields = checkRequiredFields(msg, actionData.fields)
     if not fieldsOk then
         local errorMsg = "Missing fields: " .. table.concat(missingFields, ", ")
-        print("Error: " .. errorMsg)
-        sendResponse(msg.From, action .. "Response", { error = errorMsg })
-        return
+        print(string.format("Error: %s", errorMsg))
+        return { error = errorMsg }
     end
-    print(action .. " handler called")
+
+    print(string.format("%s handler called", action))
     local success, result = pcall(function()
         return actionData.handler(msg)
     end)
+
     if not success then
-        print("Error in " .. action .. " handler: " .. tostring(result))
-        sendResponse(msg.From, action .. "Response", { error = "Internal error: " .. tostring(result) })
+        print(string.format("Error in %s handler: %s", action, tostring(result)))
+        return { error = "Internal error: " .. tostring(result) }
     else
-        sendResponse(msg.From, action .. "Response", result)
+        return result
     end
 end
 
@@ -361,7 +371,14 @@ end
 for action, _ in pairs(actions) do
     Handlers.add(action,
         Handlers.utils.hasMatchingTag('Action', action),
-        handleAction
+        function(msg)
+            local result = handleAction(msg)
+            ao.send({
+                Target = msg.From,
+                Tags = { Action = action .. "Response" },
+                Data = json.encode(result)
+            })
+        end
     )
 end
 
