@@ -1,43 +1,67 @@
 import { ref } from "vue";
 import { walletManager } from "../helpers/walletManager";
+import { defaultBangs, defaultSettings } from "../defaults";
+import { handleSearch as handleSearchLogic } from "../helpers/searchLogic";
 
 export function useSearch(isLoading) {
   const searchResult = ref("");
 
-  async function handleSearch(query, forceFallback = false) {
+  async function performSearch(
+    query,
+    forceFallback = false,
+    isWalletConnected,
+  ) {
+    console.log("performSearch called with:", {
+      query,
+      forceFallback,
+      isWalletConnected,
+    });
+
     isLoading.value = true;
     try {
-      const tags = [
-        { name: "Action", value: "Search" },
-        { name: "Query", value: query },
-      ];
+      let result;
+      if (isWalletConnected) {
+        // Existing wallet-connected logic
+        const tags = [
+          { name: "Action", value: "Search" },
+          { name: "Query", value: query },
+        ];
 
-      if (forceFallback) {
-        tags.push({ name: "ForceFallback", value: "true" });
-      }
+        if (forceFallback) {
+          tags.push({ name: "ForceFallback", value: "true" });
+        }
 
-      const result = await walletManager.dryRunArweave(
-        tags,
-        "",
-        walletManager.processId,
-      );
+        const response = await walletManager.dryRunArweave(
+          tags,
+          "",
+          walletManager.processId,
+        );
 
-      console.log(result.Messages);
-
-      if (result.Messages && result.Messages.length > 0) {
-        const data = JSON.parse(result.Messages[0].Data);
-        searchResult.value = data.result;
-        console.log("Search result:", searchResult.value);
-        let url = searchResult.value;
-        window.open(url, "_blank");
-
-        return data.result;
+        if (response.Messages && response.Messages.length > 0) {
+          console.log(response.Messages);
+          const data = JSON.parse(response.Messages[0].Data);
+          result = data.result;
+        } else {
+          throw new Error("No response from search handler");
+        }
       } else {
-        throw new Error("No response from search handler");
+        // Use default values when wallet is not connected
+        result = handleSearchLogic(
+          query,
+          defaultBangs,
+          defaultSettings.fallbackSearchEngine,
+          defaultSettings.arweaveExplorer,
+          forceFallback,
+        );
       }
+
+      searchResult.value = result;
+      console.log("Search result:", result);
+      return result;
     } catch (error) {
       console.error("Error during search:", error);
       searchResult.value = "An error occurred during the search.";
+      return searchResult.value;
     } finally {
       isLoading.value = false;
     }
@@ -45,6 +69,6 @@ export function useSearch(isLoading) {
 
   return {
     searchResult,
-    handleSearch,
+    performSearch,
   };
 }

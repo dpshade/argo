@@ -254,6 +254,15 @@ function focusNewBangInput() {
     });
 }
 
+function focusInput(id) {
+    nextTick(() => {
+        const inputElement = document.getElementById(`bang-name-${id}`);
+        if (inputElement) {
+            inputElement.focus();
+        }
+    });
+}
+
 function handleKeyDown(event, type, index) {
     if (event.key === "Enter") {
         event.preventDefault();
@@ -267,7 +276,6 @@ function handleKeyDown(event, type, index) {
 
 defineExpose({ focusNewBangInput });
 </script>
-
 <template>
     <div class="bang-editor">
         <h2>Edit Bangs</h2>

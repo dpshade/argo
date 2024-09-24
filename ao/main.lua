@@ -14,9 +14,11 @@ local function addDefaultBangs()
     local defaultBangs = {
         { "aos2", "https://hackmd.io/OoOsMsd9RNazNrrfiJcqEw" },
         { "a",    "https://www.amazon.com/s?k=%s" },
-        { "aogh", "https://github.com/search?q=repo:permaweb/ao%20%s&type=code" },
         { "gh",   "https://github.com/search?q=%s" },
         { "yt",   "https://www.youtube.com/results?search_query=%s" },
+        { "argh", "https://github.com/search?q=org:permaweb%20%s&type=code" },
+        { "aowp", "https://arweave.net/7n6ySzBAkzD4KZoTviHtskVlbdab_yylEQuuy1BvHqc" },
+        { "arwp", "https://www.arweave.org/files/arweave-lightpaper.pdf" }
     }
     for _, bang in ipairs(defaultBangs) do
         if not Bangs[bang[1]] then

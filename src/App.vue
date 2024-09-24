@@ -13,6 +13,7 @@ import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
 import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
+import { defaultBangs, defaultSettings } from "./defaults";
 
 import { store } from "./store";
 
@@ -45,8 +46,7 @@ const {
     isLoading: isBangsLoading,
 } = useBangs();
 
-const { searchResult, handleSearch: originalHandleSearch } =
-    useSearch(isLoading);
+const { searchResult, performSearch } = useSearch(isLoading);
 
 const {
     currentView,
@@ -71,17 +71,30 @@ provide("wallet", {
 provide("cachedBangsData", ref(null));
 provide("isLoading", isLoading);
 
-const handleSearch = async (query, forceFallback = false) => {
+async function handleSearch(query, forceFallback = false) {
+    if (isLoading.value) return;
+
     isLoading.value = true;
     showResult.value = false;
     try {
-        const result = await originalHandleSearch(query, forceFallback);
+        const result = await performSearch(
+            query,
+            forceFallback,
+            isWalletConnected.value,
+        );
         searchResult.value = result;
         showResult.value = true;
+
+        // Extract the URL from the result
+        const url = result.replace("Redirecting to: ", "");
+        window.open(url, "_blank");
+    } catch (error) {
+        console.error("Error during search:", error);
+        searchResult.value = "An error occurred during the search.";
     } finally {
         isLoading.value = false;
     }
-};
+}
 
 function handleSearchShortcut() {
     currentView.value = "search";
@@ -238,7 +251,8 @@ watch(isWalletConnected, (newValue) => {
                     v-if="currentView === 'search'"
                     ref="searchBarRef"
                     @search="handleSearch"
-                    :customBangs="bangs"
+                    :customBangs="isWalletConnected ? bangs : defaultBangs"
+                    :isWalletConnected="isWalletConnected"
                 />
                 <a
                     v-show="showResult"
@@ -517,6 +531,7 @@ button:hover {
         justify-content: end;
         margin-bottom: 15px;
         flex-wrap: wrap;
+        z-index: 500;
     }
 
     .toggle-button {

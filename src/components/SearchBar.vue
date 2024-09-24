@@ -1,11 +1,16 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { walletManager } from "../helpers/walletManager";
+import { defaultBangs } from "../defaults";
 
 const props = defineProps({
     customBangs: {
         type: Array,
         default: () => [],
+    },
+    isWalletConnected: {
+        type: Boolean,
+        default: false,
     },
 });
 
@@ -15,10 +20,12 @@ const searchInput = ref(null);
 const showSuggestions = ref(true);
 const arnsDomains = ref([]);
 const hoveredIndex = ref(0);
+const lastKeyboardHoveredIndex = ref(0);
 const suggestionsRef = ref(null);
 const forceFallbackEnabled = ref(false);
 const isFullScreen = ref(false);
 const isInputFocused = ref(false);
+const isMouseHovering = ref(false);
 
 function formatUrl(url, maxLength = 30) {
     let formatted = url
@@ -70,12 +77,19 @@ const filteredSuggestions = computed(() => {
             url: "https://arweave.net/tx/",
             type: "txData",
         },
+        {
+            text: "!raw",
+            description: "Open raw tx data (paste clipboard)",
+            url: "https://arweave.net/raw/",
+            type: "rawTx",
+        },
     ].map((suggestion) => ({
         ...suggestion,
         formattedUrl: suggestion.url ? formatUrl(suggestion.url) : null,
     }));
 
-    const customBangSuggestions = props.customBangs.map((bang) => ({
+    const bangs = props.isWalletConnected ? props.customBangs : defaultBangs;
+    const customBangSuggestions = bangs.map((bang) => ({
         text: `${bang.name}`,
         description: `Search ${bang.name}`,
         formattedUrl: formatUrl(bang.url),
@@ -116,22 +130,8 @@ const filteredSuggestions = computed(() => {
     const matchingBangs = customBangSuggestions.filter((bang) => {
         const bangText = bang.text.toLowerCase();
         const queryLower = query.value.toLowerCase();
-        return (
-            queryLower === bangText ||
-            queryLower.startsWith(bangText + " ") ||
-            queryLower.endsWith(" " + bangText) ||
-            queryLower.includes(" " + bangText + " ")
-        );
+        return queryLower === bangText || queryLower.startsWith(bangText + " ");
     });
-
-    if (matchingBangs.length > 0) {
-        return [
-            ...matchingBangs,
-            ...allSuggestions.filter(
-                (suggestion) => !matchingBangs.includes(suggestion),
-            ),
-        ];
-    }
 
     const filterSuggestion = (suggestion) =>
         [suggestion.text, suggestion.description, suggestion.formattedUrl]
@@ -152,12 +152,19 @@ const filteredSuggestions = computed(() => {
         (suggestion) => !exactMatches.includes(suggestion),
     );
 
-    return [...exactMatches, ...otherSuggestions];
+    return [
+        ...exactMatches,
+        ...otherSuggestions.filter(
+            (suggestion) =>
+                !matchingBangs.some((bang) => bang.text === suggestion.text),
+        ),
+    ];
 });
 
 const suggestions = computed(() => {
     const filtered = filteredSuggestions.value;
-    if (filtered.length > 0) hoveredIndex.value = 0;
+    if (filtered.length > 0 && !isMouseHovering.value)
+        hoveredIndex.value = lastKeyboardHoveredIndex.value;
 
     return filtered;
 });
@@ -187,6 +194,9 @@ function onSubmit(event) {
                 return;
             case "txData":
                 pasteFromClipboard("!");
+                return;
+            case "rawTx":
+                pasteFromClipboard("!raw ");
                 return;
         }
     }
@@ -222,9 +232,13 @@ function onKeyDown(event) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const direction = event.key === "ArrowDown" ? 1 : -1;
-        hoveredIndex.value =
-            (hoveredIndex.value + direction + suggestions.value.length) %
+        lastKeyboardHoveredIndex.value =
+            (lastKeyboardHoveredIndex.value +
+                direction +
+                suggestions.value.length) %
             suggestions.value.length;
+        hoveredIndex.value = lastKeyboardHoveredIndex.value;
+        isMouseHovering.value = false;
         scrollSuggestionIntoView();
     } else if (event.key === "Enter" && hoveredIndex.value !== -1) {
         event.preventDefault();
@@ -306,12 +320,16 @@ function selectSuggestion(suggestion) {
     } else if (type === "txData") {
         console.log("Pasting from clipboard for txData");
         pasteFromClipboard("!");
+    } else if (type === "rawTx") {
+        console.log("Pasting from clipboard for rawTx");
+        pasteFromClipboard("!raw ");
     }
 }
 
 function handleBangSearch(bangName, searchQuery = "") {
     console.log("Handling bang search:", bangName, searchQuery);
-    const bang = props.customBangs.find((b) => b.name === bangName);
+    const bangs = props.isWalletConnected ? props.customBangs : defaultBangs;
+    const bang = bangs.find((b) => b.name === bangName);
     if (bang) {
         console.log("Found matching bang:", bang);
         const trimmedQuery = searchQuery.trim();
@@ -330,6 +348,12 @@ function handleBangSearch(bangName, searchQuery = "") {
             query.value = `${bangName} `;
             searchInput.value.focus();
         }
+    } else if (bangName === "raw") {
+        const url = `https://arweave.net/raw/${searchQuery}`;
+        console.log("Opening URL:", url);
+        window.open(url, "_blank");
+        query.value = "";
+        showSuggestions.value = false;
     } else {
         console.log("No matching bang found for:", bangName);
     }
@@ -339,7 +363,7 @@ async function pasteFromClipboard(prefix = "") {
     try {
         const clipboardText = await navigator.clipboard.readText();
         if (query.value.length === 43 || query.value.length === 44) {
-            emit("search", query.value);
+            emit("search", query.value, false, props.isWalletConnected);
             query.value = "";
         }
 
@@ -367,6 +391,7 @@ watch(
     () => {
         showSuggestions.value = true;
         hoveredIndex.value = 0;
+        lastKeyboardHoveredIndex.value = 0;
         forceFallbackEnabled.value = false;
     },
     { immediate: true },
@@ -440,7 +465,14 @@ defineExpose({ focusInput });
                     class="suggestion"
                     :class="{ hovered: index === hoveredIndex }"
                     @mousedown="selectSuggestion(suggestion)"
-                    @mouseover="hoveredIndex = index"
+                    @mouseover="
+                        hoveredIndex = index;
+                        isMouseHovering = true;
+                    "
+                    @mouseleave="
+                        isMouseHovering = false;
+                        hoveredIndex = lastKeyboardHoveredIndex;
+                    "
                 >
                     <strong
                         :class="{ 'arns-name': suggestion.type === 'arns' }"
