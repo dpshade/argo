@@ -15,8 +15,6 @@ import LoadingScreen from "./components/LoadingScreen.vue";
 import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
 import { defaultBangs, defaultSettings } from "./defaults";
 
-import { store } from "./store";
-
 const searchBarRef = ref(null);
 const bangEditorRef = ref(null);
 const isDataLoaded = ref(false);
@@ -556,7 +554,9 @@ button:hover {
     input[type="url"],
     textarea {
         font-size: 16px;
-        padding: 1.15rem 1rem;
+        padding: 12px 16px;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
     }
 
     button {

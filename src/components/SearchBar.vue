@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from "vue";
+import { debounce } from "lodash";
 import { walletManager } from "../helpers/walletManager";
 import { defaultBangs } from "../defaults";
 
@@ -26,17 +27,16 @@ const forceFallbackEnabled = ref(false);
 const isFullScreen = ref(false);
 const isInputFocused = ref(false);
 const isMouseHovering = ref(false);
+const isMobile = ref(window.innerWidth <= 768);
 
-function formatUrl(url, maxLength = 30) {
-    let formatted = url
-
+const formatUrl = (url, maxLength = 30) => {
+    const formatted = url
         .replace(/^(https?:\/\/)?(www\.)?/, "")
-
         .replace(/\/$/, "");
     return formatted.length > maxLength
-        ? formatted.substring(0, maxLength - 3) + "..."
+        ? `${formatted.substring(0, maxLength - 3)}...`
         : formatted;
-}
+};
 
 const arnsSuggestionsComp = computed(() => {
     if (query.value.length <= 1) return [];
@@ -63,34 +63,39 @@ const arnsSuggestionsComp = computed(() => {
     return filteredDomains.slice(0, 5);
 });
 
+const createTxSuggestion = (text, description, url, type) => ({
+    text,
+    description,
+    url,
+    type,
+    formattedUrl: url ? formatUrl(url) : null,
+});
+
 const filteredSuggestions = computed(() => {
     const txSuggestions = [
-        {
-            text: "tx",
-            description: "Open in tx explorer (paste clipboard)",
-            url: "https://ao.link/#/message/tx/",
-            type: "tx",
-        },
-        {
-            text: "!tx",
-            description: "Open tx data (paste clipboard)",
-            url: "https://arweave.net/tx/",
-            type: "txData",
-        },
-        {
-            text: "!raw",
-            description: "Open raw tx data (paste clipboard)",
-            url: "https://arweave.net/raw/",
-            type: "rawTx",
-        },
-    ].map((suggestion) => ({
-        ...suggestion,
-        formattedUrl: suggestion.url ? formatUrl(suggestion.url) : null,
-    }));
+        createTxSuggestion(
+            "tx",
+            "Open in tx explorer (paste clipboard)",
+            "https://ao.link/#/message/tx/",
+            "tx",
+        ),
+        createTxSuggestion(
+            "!tx",
+            "Open tx data (paste clipboard)",
+            "https://arweave.net/tx/",
+            "txData",
+        ),
+        createTxSuggestion(
+            "!raw",
+            "Open raw tx data (paste clipboard)",
+            "https://arweave.net/raw/",
+            "rawTx",
+        ),
+    ];
 
     const bangs = props.isWalletConnected ? props.customBangs : defaultBangs;
     const customBangSuggestions = bangs.map((bang) => ({
-        text: `${bang.name}`,
+        text: bang.name,
         description: `Search ${bang.name}`,
         formattedUrl: formatUrl(bang.url),
         type: "bang",
@@ -98,76 +103,95 @@ const filteredSuggestions = computed(() => {
 
     const arnsSuggestions = arnsSuggestionsComp.value;
 
-    let allSuggestions = [];
-
-    if (
+    const allSuggestions =
         !query.value ||
         (query.value.length >= 43 &&
             query.value.length <= 44 &&
             !query.value.includes(" "))
-    ) {
-        // For empty query or potential transaction IDs, include txSuggestions in normal order
-        allSuggestions = [
-            ...txSuggestions,
-            ...customBangSuggestions,
-            ...arnsSuggestions,
-        ];
-    } else {
-        // For all other cases, put txSuggestions at the bottom
-        allSuggestions = [
-            ...customBangSuggestions,
-            ...arnsSuggestions,
-            ...txSuggestions,
-        ];
-    }
+            ? [...txSuggestions, ...customBangSuggestions, ...arnsSuggestions]
+            : [...customBangSuggestions, ...arnsSuggestions, ...txSuggestions];
 
-    if (query.value.length === 43 || query.value.length === 44) {
-        return txSuggestions;
+    if (query.value.length === 43) {
+        return [
+            txSuggestions.find((s) => s.text === "tx"),
+            ...txSuggestions.filter((s) => s.text !== "tx"),
+        ];
+    } else if (query.value.length === 44) {
+        return [
+            txSuggestions.find((s) => s.text === "!tx"),
+            ...txSuggestions.filter((s) => s.text !== "!tx"),
+        ];
     }
 
     if (!query.value) return allSuggestions;
 
+    const queryLower = query.value.toLowerCase();
     const matchingBangs = customBangSuggestions.filter((bang) => {
         const bangText = bang.text.toLowerCase();
-        const queryLower = query.value.toLowerCase();
         return queryLower === bangText || queryLower.startsWith(bangText + " ");
     });
 
     const filterSuggestion = (suggestion) =>
         [suggestion.text, suggestion.description, suggestion.formattedUrl]
             .filter(Boolean)
-            .some((field) =>
-                field.toLowerCase().includes(query.value.toLowerCase()),
-            );
+            .some((field) => field.toLowerCase().includes(queryLower));
 
     const filteredSuggestions = allSuggestions.filter(filterSuggestion);
 
     const exactMatches = filteredSuggestions.filter(
         (suggestion) =>
             ["bang", "arns"].includes(suggestion.type) &&
-            suggestion.text.toLowerCase() === query.value.toLowerCase(),
+            suggestion.text.toLowerCase() === queryLower,
     );
 
     const otherSuggestions = filteredSuggestions.filter(
         (suggestion) => !exactMatches.includes(suggestion),
     );
 
+    const uniqueMatches = [...new Set([...matchingBangs, ...exactMatches])];
+
+    if (queryLower.startsWith("!raw") && queryLower.length > 4) {
+        uniqueMatches.unshift(txSuggestions.find((s) => s.text === "!raw"));
+    }
+
+    const globalSuggestions = txSuggestions.filter((s) =>
+        queryLower.startsWith(s.text.toLowerCase()),
+    );
+
     return [
-        ...exactMatches,
+        ...globalSuggestions,
+        ...uniqueMatches.filter(
+            (s) => !globalSuggestions.some((gs) => gs.text === s.text),
+        ),
         ...otherSuggestions.filter(
             (suggestion) =>
-                !matchingBangs.some((bang) => bang.text === suggestion.text),
+                !uniqueMatches.some(
+                    (match) => match.text === suggestion.text,
+                ) &&
+                !globalSuggestions.some((gs) => gs.text === suggestion.text),
         ),
     ];
 });
 
 const suggestions = computed(() => {
     const filtered = filteredSuggestions.value;
-    if (filtered.length > 0 && !isMouseHovering.value)
+    if (filtered.length > 0 && !isMouseHovering.value && !isMobile.value)
         hoveredIndex.value = lastKeyboardHoveredIndex.value;
 
     return filtered;
 });
+
+const handleSuggestionAction = {
+    arns: (text) => {
+        window.open(`https://${text}.ar.io`, "_blank");
+        query.value = "";
+        showSuggestions.value = false;
+    },
+    bang: (text) => handleBangSearch(text),
+    tx: () => pasteFromClipboard(),
+    txData: () => pasteFromClipboard("!"),
+    rawTx: () => pasteFromClipboard("!raw "),
+};
 
 function onSubmit(event) {
     event.preventDefault();
@@ -176,28 +200,12 @@ function onSubmit(event) {
     if (forceFallbackEnabled.value) {
         emit("search", trimmedQuery, true);
     } else if (suggestions.value.length > 0 && !trimmedQuery.includes(" ")) {
-        const selectedSuggestion = suggestions.value[hoveredIndex.value];
-        switch (selectedSuggestion.type) {
-            case "arns":
-                window.open(
-                    `https://${selectedSuggestion.text}.ar.io`,
-                    "_blank",
-                );
-                query.value = "";
-                showSuggestions.value = false;
-                return;
-            case "bang":
-                handleBangSearch(selectedSuggestion.text);
-                return;
-            case "tx":
-                pasteFromClipboard();
-                return;
-            case "txData":
-                pasteFromClipboard("!");
-                return;
-            case "rawTx":
-                pasteFromClipboard("!raw ");
-                return;
+        const selectedSuggestion =
+            suggestions.value[isMobile.value ? 0 : hoveredIndex.value];
+        const action = handleSuggestionAction[selectedSuggestion.type];
+        if (action) {
+            action(selectedSuggestion.text);
+            return;
         }
     }
 
@@ -212,11 +220,7 @@ function onSubmit(event) {
             searchInput.value.focus();
             return;
         }
-    } else if (
-        !trimmedQuery.includes(" ") &&
-        trimmedQuery.length !== 43 &&
-        trimmedQuery.length !== 44
-    ) {
+    } else if (trimmedQuery.length === 43 || trimmedQuery.length === 44) {
         emit("search", trimmedQuery, false);
     } else {
         emit("search", trimmedQuery, false);
@@ -229,7 +233,10 @@ function onSubmit(event) {
 }
 
 function onKeyDown(event) {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (
+        !isMobile.value &&
+        (event.key === "ArrowDown" || event.key === "ArrowUp")
+    ) {
         event.preventDefault();
         const direction = event.key === "ArrowDown" ? 1 : -1;
         lastKeyboardHoveredIndex.value =
@@ -259,8 +266,10 @@ function scrollSuggestionIntoView() {
     nextTick(() => {
         const suggestionElements =
             suggestionsRef.value.querySelectorAll(".suggestion");
-        if (suggestionElements[hoveredIndex.value]) {
-            suggestionElements[hoveredIndex.value].scrollIntoView({
+        if (suggestionElements[isMobile.value ? 0 : hoveredIndex.value]) {
+            suggestionElements[
+                isMobile.value ? 0 : hoveredIndex.value
+            ].scrollIntoView({
                 behavior: "smooth",
                 block: "nearest",
             });
@@ -274,10 +283,26 @@ function focusInput() {
     }
 }
 
-const onInputFocus = () => {
+const debouncedOnInputFocus = debounce(() => {
     showSuggestions.value = true;
     isFullScreen.value = true;
     isInputFocused.value = true;
+    if (isMobile.value) {
+        nextTick(() => {
+            hoveredIndex.value = 0;
+            scrollSuggestionIntoView();
+        });
+    }
+}, 200);
+
+const onInputTouchStart = (event) => {
+    debouncedOnInputFocus();
+    setTimeout(() => {
+        requestAnimationFrame(() => {
+            searchInput.value.focus();
+            window.scrollTo(0, 0);
+        });
+    }, 150);
 };
 
 const onInputBlur = () => {
@@ -311,18 +336,11 @@ function selectSuggestion(suggestion) {
             );
             handleBangSearch(text, searchQuery);
         }
-    } else if (type === "arns") {
-        console.log("Opening ArNS domain:", text);
-        window.open(`https://${text}.ar.io`, "_blank");
-    } else if (type === "tx") {
-        console.log("Pasting from clipboard for tx");
-        pasteFromClipboard();
-    } else if (type === "txData") {
-        console.log("Pasting from clipboard for txData");
-        pasteFromClipboard("!");
-    } else if (type === "rawTx") {
-        console.log("Pasting from clipboard for rawTx");
-        pasteFromClipboard("!raw ");
+    } else {
+        const action = handleSuggestionAction[type];
+        if (action) {
+            action(text);
+        }
     }
 }
 
@@ -384,6 +402,9 @@ onMounted(async () => {
     } catch (error) {
         console.error("Failed to load ArNS domains:", error);
     }
+    window.addEventListener("resize", () => {
+        isMobile.value = window.innerWidth <= 768;
+    });
 });
 
 watch(
@@ -435,7 +456,8 @@ defineExpose({ focusInput });
                 v-model="query"
                 placeholder="Search, bang, or ArNS domain..."
                 required
-                @focus="onInputFocus"
+                @focus="debouncedOnInputFocus"
+                @touchstart="onInputTouchStart"
                 @blur="onInputBlur"
                 @keydown="onKeyDown"
                 :class="{
@@ -526,6 +548,8 @@ input {
     background-color: var(--input-bg);
     color: var(--text-color);
     transition: border-radius 0.3s ease;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
 }
 
 input.with-suggestions {
@@ -681,7 +705,7 @@ button:hover {
             background: none;
             border: none;
             cursor: pointer;
-            background-color: var(--input-focus-bg);
+            background-color: var(--input-bg);
             padding: 40px 16px;
             min-width: auto;
             width: 15%;
@@ -700,6 +724,10 @@ button:hover {
             font-size: 1.5rem;
             border-radius: 0;
             padding: 1.15rem 0rem;
+        }
+
+        input:focus {
+            background-color: var(--input-bg);
         }
 
         button[type="submit"] {
@@ -737,7 +765,8 @@ button:hover {
     }
 
     input {
-        font-size: 12px;
+        font-size: 16px;
+        padding: 12px 16px;
     }
 
     .full-screen input.with-suggestions {
@@ -749,7 +778,7 @@ button:hover {
     }
 
     .suggestions-wrapper {
-        background-color: var(--input-focus-bg);
+        background-color: var(--input-bg);
         order: 1;
     }
 

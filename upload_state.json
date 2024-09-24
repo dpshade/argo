@@ -1,0 +1,33 @@
+{
+  "build_id": "1727220505-ca47",
+  "build_timestamp": "2024-09-24 19:28:27",
+  "file_hash": "771e54c7e69d7515ed13286c768cddef2337b0e313df23eb043e3d5648e31467",
+  "files": {
+    "ao/main.lua": {
+      "tx_id": "LP1DJHb6UepHHSlWc04mfBJZGs6aOOVhzBZbxOozoIo",
+      "type": "file"
+    },
+    "assets/main.css": {
+      "tx_id": "DrZt3E4tprvVB0qalG8lHxk4mhrfqPTlQDSAio4FKEU",
+      "type": "file"
+    },
+    "assets/main.js": {
+      "tx_id": "hnnOlZPchULAzwTVigd7nNzfLJHdwQ-8Zx3xWAZazNM",
+      "type": "file"
+    },
+    "index.html": {
+      "tx_id": "C2U_dEfGpup8D179LF6l93uxtGpr2cTr02BKFKaIUZk",
+      "type": "file"
+    },
+    "vite.svg": {
+      "tx_id": "iPGrVrMdOvPDGpljc4lUVxrwdhF9lTn9gBpnMyXe5A0",
+      "type": "file"
+    }
+  },
+  "is_production_build": true,
+  "manifest": {
+    "tx_id": "y-KFVclLC5HMnabpT0_U470n4aruHQHD7wJ8CJ2fW2A",
+    "type": "file"
+  },
+  "version": "0.18.0"
+}

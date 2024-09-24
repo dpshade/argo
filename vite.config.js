@@ -20,6 +20,7 @@ export default defineConfig(({ command, mode }) => {
   const isProduction = mode === "production";
 
   return {
+    base: "./", // Add this line to ensure assets are loaded correctly
     plugins: [
       vue(),
       nodePolyfills({
