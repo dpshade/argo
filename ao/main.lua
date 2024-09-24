@@ -12,10 +12,11 @@ local function addDefaultBangs()
     if DefaultsSet then return end
 
     local defaultBangs = {
-        { "yt",   "https://www.youtube.com/results?search_query=%s" },
-        { "gh",   "https://github.com/search?q=%s" },
-        { "a",    "https://www.amazon.com/s?k=%s" },
         { "aos2", "https://hackmd.io/OoOsMsd9RNazNrrfiJcqEw" },
+        { "a",    "https://www.amazon.com/s?k=%s" },
+        { "aogh", "https://github.com/search?q=repo:permaweb/ao%20%s&type=code" },
+        { "gh",   "https://github.com/search?q=%s" },
+        { "yt",   "https://www.youtube.com/results?search_query=%s" },
     }
     for _, bang in ipairs(defaultBangs) do
         if not Bangs[bang[1]] then
@@ -64,14 +65,31 @@ local function encodeURIComponent(str)
 end
 
 local function formatUrl(url, term)
-    return url:find("%%s") and string.format(url, encodeURIComponent(term)) or url
+    -- Check if the URL contains a %s or %S placeholder
+    if url:match("%%[sS]") then
+        -- Replace %s with URL-encoded term and %S with non-encoded term
+        return url:gsub("%%([sS])", function(placeholder)
+            if placeholder == "s" then
+                return encodeURIComponent(term)
+            else -- S
+                return term
+            end
+        end)
+    else
+        -- If no placeholder, append the encoded term
+        return url .. encodeURIComponent(term)
+    end
 end
 
 local function ensureProtocol(url)
     return url:match("^https?://") and url or "https://" .. url
 end
 
-local function handleSearch(query)
+local function handleSearch(query, forceFallback)
+    if forceFallback then
+        return formatUrl(FallbackSearchEngine, query)
+    end
+
     local trimmedQuery = query:gsub("^%s*(.-)%s*$", "%1")
 
     for name, bang in pairs(Bangs) do
@@ -81,6 +99,7 @@ local function handleSearch(query)
             return formatUrl(bang.url, searchTerm)
         end
     end
+    print("Bang not found... checking TxID")
 
     if #trimmedQuery == 43 and trimmedQuery:match("^[a-zA-Z0-9_-]+$") then
         return formatUrl(ArweaveExplorer, trimmedQuery)
@@ -89,10 +108,12 @@ local function handleSearch(query)
         return formatUrl(DefaultArweaveGateway, txId)
     end
 
+    print("TxID not found... checking ArNS")
     if not trimmedQuery:find("%s") and arnsExists(trimmedQuery) then
         return trimmedQuery .. ".arweave.net"
     end
 
+    print("ArNS not found... Searching fallback URL.")
     return formatUrl(FallbackSearchEngine, trimmedQuery)
 end
 
@@ -146,7 +167,8 @@ local actions = {
     Search = function(msg)
         local query = getDataField(msg, "Query") or getField(msg, "Query")
         if not query then return { error = "Missing or invalid Query" } end
-        return { result = handleSearch(query) }
+        local forceFallback = getDataField(msg, "ForceFallback") or getField(msg, "ForceFallback")
+        return { result = handleSearch(query, forceFallback) }
     end,
     Info = function()
         return {

@@ -47,6 +47,7 @@ const {
 
 const { searchResult, handleSearch: originalHandleSearch } =
     useSearch(isLoading);
+
 const {
     currentView,
     isHeadless,
@@ -70,11 +71,12 @@ provide("wallet", {
 provide("cachedBangsData", ref(null));
 provide("isLoading", isLoading);
 
-const handleSearch = async (query) => {
+const handleSearch = async (query, forceFallback = false) => {
     isLoading.value = true;
     showResult.value = false;
     try {
-        await originalHandleSearch(query);
+        const result = await originalHandleSearch(query, forceFallback);
+        searchResult.value = result;
         showResult.value = true;
     } finally {
         isLoading.value = false;
@@ -271,6 +273,7 @@ watch(isWalletConnected, (newValue) => {
     <LoadingScreen v-if="isLoading" :message="loadingMessage" />
 </template>
 <style>
+/* Variables */
 :root {
     --bg-color: #ffffff;
     --container-bg: #fafafa;
@@ -301,6 +304,7 @@ body.dark-mode {
     --border-color: #333333;
 }
 
+/* Global Styles */
 body,
 html {
     height: 100%;
@@ -326,12 +330,12 @@ body {
     overflow-y: hidden;
 }
 
+/* Layout Components */
 .container {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* justify-content: center; */
     background-color: var(--container-bg);
     padding: 30px;
     position: relative;
@@ -356,14 +360,6 @@ body {
     gap: 10px;
 }
 
-h1 {
-    color: var(--text-color);
-    text-align: center;
-    margin-bottom: 20px;
-    font-size: 2.5rem;
-    font-weight: 300;
-}
-
 .search-section {
     margin-top: 30vh;
     position: relative;
@@ -373,41 +369,17 @@ h1 {
     align-items: center;
 }
 
-.result {
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    margin-top: 20px;
-    padding: 15px 0;
-    border-bottom: 1px solid var(--border-color);
-    font-size: 14px;
-    line-height: 1.4;
-    animation: fadeIn 0.3s ease-out;
-    transition: opacity 1s ease-out;
+/* Typography */
+h1,
+.title {
+    color: var(--text-color);
     text-align: center;
-    animation: fadeInOut 4s ease-out;
-    color: var(--button-hover-bg);
-    text-overflow: ellipsis;
-    width: 80%;
+    margin-bottom: 20px;
+    font-size: 2.5rem;
+    font-weight: 300;
 }
 
-@keyframes fadeInOut {
-    0% {
-        opacity: 0;
-        transform: translate(-50%, -10px);
-    }
-    10%,
-    90% {
-        opacity: 1;
-        transform: translate(-50%, 0);
-    }
-    100% {
-        opacity: 0;
-        transform: translate(-50%, -10px);
-    }
-}
-
+/* UI Components */
 button {
     padding: 10px 16px;
     background-color: var(--button-bg);
@@ -421,38 +393,6 @@ button {
 
 button:hover {
     background-color: var(--button-hover-bg);
-}
-
-.loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 9999;
-    backdrop-filter: blur(5px);
-}
-
-.loading-spinner {
-    width: 50px;
-    height: 50px;
-    border: 3px solid #ffffff;
-    border-top: 3px solid var(--button-bg);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
 }
 
 .dark-mode-toggle {
@@ -477,19 +417,86 @@ button:hover {
     display: block;
 }
 
-.title {
-    color: var(--text-color);
+.result {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 20px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+    line-height: 1.4;
     text-align: center;
-    margin-bottom: 20px;
-    font-size: 2.5rem;
-    font-weight: 300;
+    color: var(--button-hover-bg);
+    text-overflow: ellipsis;
+    width: 80%;
+    animation: fadeInOut 4s ease-out;
 }
 
+/* Loading */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    backdrop-filter: blur(5px);
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid #ffffff;
+    border-top: 3px solid var(--button-bg);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Animations */
+@keyframes fadeInOut {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -10px);
+    }
+    10%,
+    90% {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -10px);
+    }
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Media Queries */
 @media screen and (max-width: 768px) {
     body {
         font-size: 14px;
         -webkit-text-size-adjust: 100%;
         overflow-y: auto;
+    }
+
+    .container {
+        overflow-x: hidden;
+        padding: 0;
+        height: 100vh;
+        justify-content: center;
     }
 
     .bang-editor-wrapper {
@@ -500,17 +507,13 @@ button:hover {
         display: none;
     }
 
-    .container {
-        overflow-x: hidden;
-        padding: 0;
-    }
-
     h1 {
         font-size: 1.8rem;
         margin-bottom: 15px;
     }
 
     .top-right {
+        right: 10px;
         justify-content: end;
         margin-bottom: 15px;
         flex-wrap: wrap;
@@ -522,13 +525,16 @@ button:hover {
     }
 
     .dark-mode-toggle {
-        top: 10px;
-        left: 10px;
+        top: 20px;
+        left: 15px;
     }
 
     .search-section {
         width: 95%;
-        margin-top: 15vh;
+        margin-top: 0;
+        height: 100vh;
+        justify-content: center;
+        margin-bottom: 10rem;
     }
 
     input[type="text"],

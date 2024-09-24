@@ -7,9 +7,19 @@ export async function handleSearch(
   walletManager,
   fallbackSearchEngine = "https://google.com/search?q=%s",
   arweaveExplorer = "https://viewblock.io/arweave/tx/%s",
+  forceFallback = false,
 ) {
   const trimmedQuery = query.trim();
   console.log("Searching:", trimmedQuery);
+
+  // If forceFallback is true, skip all other checks and use the fallback search engine
+  if (forceFallback) {
+    const searchUrl = fallbackSearchEngine.replace(
+      "%s",
+      encodeURIComponent(trimmedQuery),
+    );
+    return `Redirecting to: ${searchUrl}`;
+  }
 
   // Check cache first for exact match
   const cachedRedirect = cacheModule.get(trimmedQuery, "redirect");

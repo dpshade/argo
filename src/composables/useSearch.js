@@ -4,14 +4,20 @@ import { walletManager } from "../helpers/walletManager";
 export function useSearch(isLoading) {
   const searchResult = ref("");
 
-  async function handleSearch(query) {
+  async function handleSearch(query, forceFallback = false) {
     isLoading.value = true;
     try {
+      const tags = [
+        { name: "Action", value: "Search" },
+        { name: "Query", value: query },
+      ];
+
+      if (forceFallback) {
+        tags.push({ name: "ForceFallback", value: "true" });
+      }
+
       const result = await walletManager.dryRunArweave(
-        [
-          { name: "Action", value: "Search" },
-          { name: "Query", value: query },
-        ],
+        tags,
         "",
         walletManager.processId,
       );
