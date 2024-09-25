@@ -189,7 +189,6 @@ export default {
         </div>
     </div>
 </template>
-
 <style scoped>
 @font-face {
     font-family: "PPNeueBit";
@@ -198,7 +197,8 @@ export default {
     font-style: normal;
 }
 
-.modal button {
+.modal button,
+.connect-button {
     padding: 10px 20px;
     background-color: var(--button-bg);
     color: white;
@@ -208,20 +208,7 @@ export default {
     font-size: 16px;
 }
 
-.modal button:hover {
-    background-color: var(--button-hover-bg);
-}
-
-.connect-button {
-    padding: 10px 20px;
-    font-size: 16px;
-    background-color: var(--button-bg);
-    color: white;
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-}
-
+.modal button:hover,
 .connect-button:hover {
     background-color: var(--button-hover-bg);
 }
@@ -229,10 +216,7 @@ export default {
 .modal {
     display: flex;
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     z-index: 1000;
     background: rgba(0, 0, 0, 0.5);
     justify-content: center;
@@ -255,10 +239,8 @@ h2 {
         Plus Jakarta Sans,
         sans-serif;
     font-size: 24px;
-    font-style: normal;
     font-weight: 700;
     line-height: 120%;
-    letter-spacing: 0;
     margin-bottom: 24px;
 }
 
@@ -298,7 +280,6 @@ h2 {
         Plus Jakarta Sans,
         sans-serif;
     font-size: 16px;
-    font-style: normal;
     font-weight: 700;
     line-height: 120%;
     letter-spacing: -0.16px;
@@ -311,7 +292,6 @@ h2 {
         Plus Jakarta Sans,
         sans-serif;
     font-size: 12px;
-    font-style: normal;
     font-weight: 600;
     line-height: 1.2;
     letter-spacing: -0.24px;
@@ -326,10 +306,8 @@ h2 {
         Plus Jakarta Sans,
         sans-serif;
     font-size: 14px;
-    font-style: normal;
     font-weight: 400;
     line-height: 1.1;
-    letter-spacing: 0;
     margin: 0;
     color: #454545;
 }
@@ -359,8 +337,6 @@ h2 {
     }
 
     .connect-option {
-        flex-direction: row;
-        align-items: center;
         padding: 15px 10px;
     }
 
@@ -384,7 +360,6 @@ h2 {
 
     .connect-button {
         width: 100%;
-        max-width: 200px;
         margin: 0 auto;
         display: block;
     }

@@ -148,3 +148,46 @@ export const resolveArNSDomain = async (domain) => {
     return null;
   }
 };
+
+export const resolveTx = async (tx) => {
+  const cachedResolution = cacheModule.get(`txResolution_${tx}`, "arns");
+  if (cachedResolution) {
+    return cachedResolution;
+  }
+
+  try {
+    // First, try the .ar.io gateway
+    const arIoLink = `https://arweave.net/${tx}`;
+    console.log(`Checking .ar.io gateway for tx: ${arIoLink}`);
+    const arIoResult = await checkAccess(arIoLink);
+    if (arIoResult.status) {
+      console.log(`Accessible .ar.io gateway found for tx: ${arIoLink}`);
+      cacheModule.set(`txResolution_${tx}`, arIoLink, "arns");
+      return arIoLink;
+    }
+
+    // If .ar.io is not accessible, try other gateways
+    const sortedGateways = await fetchAllGateways();
+    console.log("Sorted gateways:", sortedGateways);
+
+    for (const gateway of sortedGateways) {
+      if (gateway.settings?.fqdn) {
+        const link = `https://${gateway.settings.fqdn}/${tx}`;
+        console.log(`Checking gateway for tx: ${link}`);
+        const result = await checkAccess(link);
+        if (result.status) {
+          console.log(`Accessible gateway found for tx: ${link}`);
+          cacheModule.set(`txResolution_${tx}`, link, "arns");
+          return link;
+        }
+      }
+    }
+
+    console.log(`No accessible gateway found for tx ${tx}`);
+    cacheModule.set(`txResolution_${tx}`, null, "arns");
+    return null;
+  } catch (error) {
+    console.error(`Error resolving tx ${tx}:`, error);
+    return null;
+  }
+};

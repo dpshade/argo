@@ -13,12 +13,15 @@ import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
 import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
-
-import { store } from "./store";
+import { defaultBangs, defaultSettings } from "./defaults";
 
 const searchBarRef = ref(null);
 const bangEditorRef = ref(null);
 const isDataLoaded = ref(false);
+const showResult = ref(false);
+const isBangEditorLoading = ref(false);
+const isLoading = ref(false);
+const loadingMessage = ref("");
 
 const {
     isWalletConnected,
@@ -38,9 +41,11 @@ const {
     updateExplorer,
     fetchAndLoadData,
     resetState,
+    isLoading: isBangsLoading,
 } = useBangs();
 
-const { searchResult, handleSearch } = useSearch();
+const { searchResult, performSearch } = useSearch(isLoading);
+
 const {
     currentView,
     isHeadless,
@@ -62,6 +67,32 @@ provide("wallet", {
 });
 
 provide("cachedBangsData", ref(null));
+provide("isLoading", isLoading);
+
+async function handleSearch(query, forceFallback = false) {
+    if (isLoading.value) return;
+
+    isLoading.value = true;
+    showResult.value = false;
+    try {
+        const result = await performSearch(
+            query,
+            forceFallback,
+            isWalletConnected.value,
+        );
+        searchResult.value = result;
+        showResult.value = true;
+
+        // Extract the URL from the result
+        const url = result.replace("Redirecting to: ", "");
+        window.open(url, "_blank");
+    } catch (error) {
+        console.error("Error during search:", error);
+        searchResult.value = "An error occurred during the search.";
+    } finally {
+        isLoading.value = false;
+    }
+}
 
 function handleSearchShortcut() {
     currentView.value = "search";
@@ -90,11 +121,21 @@ useKeyboardShortcuts({ handleSearchShortcut, handleEditorShortcut });
 function toggleView() {
     currentView.value =
         currentView.value === "search" ? "bangEditor" : "search";
+    if (currentView.value === "bangEditor") {
+        isBangEditorLoading.value = true;
+    }
+    nextTick(() => {
+        if (currentView.value === "search" && searchBarRef.value) {
+            searchBarRef.value.focusInput();
+        } else if (currentView.value === "bangEditor" && bangEditorRef.value) {
+            bangEditorRef.value.focusNewBangInput();
+        }
+    });
 }
 
 async function onWalletConnected(method, address) {
     console.log("Wallet connected:", address, "with method:", method);
-    store.isLoading = true;
+    isLoading.value = true;
     try {
         await fetchAndLoadData();
         if (searchBarRef.value) {
@@ -103,30 +144,31 @@ async function onWalletConnected(method, address) {
     } catch (error) {
         console.error("Error during wallet connection:", error);
     } finally {
-        store.isLoading = false;
+        isLoading.value = false;
     }
 }
 
 async function onWalletDisconnected() {
     console.log("Wallet disconnected");
-    store.isLoading = true;
+    isLoading.value = true;
     try {
         await disconnectWallet();
         resetState();
         isDataLoaded.value = false;
     } finally {
-        store.isLoading = false;
+        isLoading.value = false;
     }
 }
 
 const debouncedFetchAndLoadData = debounce(async () => {
     if (!isDataLoaded.value && isWalletConnected.value && processId.value) {
         console.log("Fetching and loading data...");
+        isLoading.value = true;
         try {
             await fetchAndLoadData();
             isDataLoaded.value = true;
         } finally {
-            store.isLoading = false;
+            isLoading.value = false;
         }
     }
 }, 300);
@@ -201,51 +243,53 @@ watch(isWalletConnected, (newValue) => {
                     @walletDisconnected="onWalletDisconnected"
                 />
             </div>
-            <h1
-                class="title"
-                :class="{ 'hide-on-mobile': currentView === 'bangEditor' }"
-            >
-                tinyNav
-            </h1>
-            <SearchBar
-                v-if="currentView === 'search'"
-                @search="
-                    (query) =>
-                        handleSearch(
-                            query,
-                            bangs,
-                            walletConnection,
-                            fallbackSearchEngine,
-                            arweaveExplorer,
-                        )
-                "
-            />
-            <BangEditor
-                v-if="showBangEditor"
-                :bangs="bangs"
-                :fallbackSearchEngine="fallbackSearchEngine"
-                :arweaveExplorer="arweaveExplorer"
-                :walletManager="walletManager"
-                @update:bangs="updateBangs"
-                @update:fallbackSearchEngine="updateFallback"
-                @update:arweaveExplorer="updateExplorer"
-                @force-update="() => fetchAndLoadData(true)"
-            />
-
-            <!-- <div v-if="searchResult" class="result fade-out">
-                {{ searchResult }}
-            </div> -->
+            <div class="search-section" v-show="currentView === 'search'">
+                <h1 class="title">tinyNav</h1>
+                <SearchBar
+                    v-if="currentView === 'search'"
+                    ref="searchBarRef"
+                    @search="handleSearch"
+                    :customBangs="isWalletConnected ? bangs : defaultBangs"
+                    :isWalletConnected="isWalletConnected"
+                />
+                <a
+                    v-show="showResult"
+                    :key="searchResult"
+                    class="result"
+                    @animationend="showResult = false"
+                    :href="searchResult"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    {{ searchResult }}
+                </a>
+            </div>
+            <div class="bang-editor-wrapper" v-if="showBangEditor">
+                <BangEditor
+                    ref="bangEditorRef"
+                    :bangs="bangs"
+                    :fallbackSearchEngine="fallbackSearchEngine"
+                    :arweaveExplorer="arweaveExplorer"
+                    :walletManager="walletManager"
+                    @update:bangs="updateBangs"
+                    @update:fallbackSearchEngine="updateFallback"
+                    @update:arweaveExplorer="updateExplorer"
+                    @force-update="() => fetchAndLoadData(true)"
+                    @loading-complete="isBangEditorLoading = false"
+                    :isLoading="isBangEditorLoading"
+                />
+            </div>
         </div>
         <KeyboardShortcuts />
     </template>
-    <LoadingScreen />
+    <LoadingScreen v-if="isLoading" :message="loadingMessage" />
 </template>
-
 <style>
+/* Variables */
 :root {
     --bg-color: #ffffff;
     --container-bg: #fafafa;
-    --input-bg: #f5f5f5;
+    --input-bg: #f0f0f0;
     --input-focus-bg: #f0f0f0;
     --button-bg: #d2c0a6;
     --button-hover-bg: #c0ab8e;
@@ -272,6 +316,7 @@ body.dark-mode {
     --border-color: #333333;
 }
 
+/* Global Styles */
 body,
 html {
     height: 100%;
@@ -284,6 +329,7 @@ body {
         Helvetica, Arial, sans-serif;
     background-color: var(--bg-color);
     color: var(--text-color);
+    overflow-y: hidden;
 }
 
 #app {
@@ -293,19 +339,28 @@ body {
     flex-direction: column;
     box-sizing: border-box;
     position: relative;
+    overflow-y: hidden;
 }
 
+/* Layout Components */
 .container {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     background-color: var(--container-bg);
     padding: 30px;
     position: relative;
     width: 100%;
     box-sizing: border-box;
+}
+
+.bang-editor-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    width: 100%;
 }
 
 .top-right {
@@ -317,7 +372,18 @@ body {
     gap: 10px;
 }
 
-h1 {
+.search-section {
+    margin-top: 30vh;
+    position: relative;
+    width: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Typography */
+h1,
+.title {
     color: var(--text-color);
     text-align: center;
     margin-bottom: 20px;
@@ -325,20 +391,7 @@ h1 {
     font-weight: 300;
 }
 
-.result {
-    margin-top: 20px;
-    padding: 15px 0;
-    border-bottom: 1px solid var(--border-color);
-    font-size: 14px;
-    line-height: 1.4;
-    animation: fadeIn 0.3s ease-out;
-    transition: opacity 1s ease-out;
-}
-
-.fade-out {
-    animation: fadeOut 1s ease-out 3s forwards;
-}
-
+/* UI Components */
 button {
     padding: 10px 16px;
     background-color: var(--button-bg);
@@ -352,58 +405,6 @@ button {
 
 button:hover {
     background-color: var(--button-hover-bg);
-}
-
-@keyframes fadeOut {
-    from {
-        opacity: 1;
-    }
-    to {
-        opacity: 0;
-    }
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 9999;
-    backdrop-filter: blur(5px);
-}
-
-.loading-spinner {
-    width: 50px;
-    height: 50px;
-    border: 3px solid #ffffff;
-    border-top: 3px solid var(--button-bg);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
 }
 
 .dark-mode-toggle {
@@ -428,27 +429,94 @@ button:hover {
     display: block;
 }
 
-.title {
-    color: var(--text-color);
+.result {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 20px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+    line-height: 1.4;
     text-align: center;
-    margin-bottom: 20px;
-    font-size: 2.5rem;
-    font-weight: 300;
+    color: var(--button-hover-bg);
+    text-overflow: ellipsis;
+    width: 80%;
+    animation: fadeInOut 4s ease-out;
 }
 
+/* Loading */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    backdrop-filter: blur(5px);
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid #ffffff;
+    border-top: 3px solid var(--button-bg);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Animations */
+@keyframes fadeInOut {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -10px);
+    }
+    10%,
+    90% {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -10px);
+    }
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Media Queries */
 @media screen and (max-width: 768px) {
     body {
         font-size: 14px;
         -webkit-text-size-adjust: 100%;
-    }
-
-    .hide-on-mobile {
-        display: none;
+        overflow-y: auto;
     }
 
     .container {
         overflow-x: hidden;
         padding: 0;
+        height: 100vh;
+        justify-content: center;
+    }
+
+    .bang-editor-wrapper {
+        align-items: flex-start;
+    }
+
+    .hide-on-mobile {
+        display: none;
     }
 
     h1 {
@@ -457,9 +525,11 @@ button:hover {
     }
 
     .top-right {
+        right: 10px;
         justify-content: end;
         margin-bottom: 15px;
         flex-wrap: wrap;
+        z-index: 500;
     }
 
     .toggle-button {
@@ -468,15 +538,25 @@ button:hover {
     }
 
     .dark-mode-toggle {
-        top: 10px;
-        left: 10px;
+        top: 20px;
+        left: 15px;
+    }
+
+    .search-section {
+        width: 95%;
+        margin-top: 0;
+        height: 100vh;
+        justify-content: center;
+        margin-bottom: 10rem;
     }
 
     input[type="text"],
     input[type="url"],
     textarea {
         font-size: 16px;
-        padding: 1.15rem 1rem;
+        padding: 12px 16px;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
     }
 
     button {

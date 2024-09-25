@@ -8,7 +8,6 @@ import {
   updateBang,
   deleteBang,
 } from "../helpers/bangHelpers";
-import { cacheModule } from "../helpers/cacheModule";
 import { walletManager } from "../helpers/walletManager";
 
 export function useBangs() {
@@ -17,10 +16,6 @@ export function useBangs() {
   const arweaveExplorer = ref("https://viewblock.io/arweave/tx/%s");
   const lastFetchTime = ref(null);
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
-  function getCacheKey() {
-    return `bangsData_${walletManager.address}`;
-  }
 
   const debouncedFetchAndLoadData = debounce(async (forceUpdate = false) => {
     if (!walletManager.address || !walletManager.processId) {
@@ -31,23 +26,18 @@ export function useBangs() {
     }
 
     const now = Date.now();
-    const cacheKey = getCacheKey();
-    const cachedData = cacheModule.get(cacheKey, "bangs");
-
     if (
       !forceUpdate &&
-      cachedData &&
+      lastFetchTime.value &&
       now - lastFetchTime.value < CACHE_DURATION
     ) {
-      console.log("Using cached data for wallet:", walletManager.address);
-      updateUIData(cachedData);
+      console.log("Using cached data");
       return;
     }
 
     try {
-      const result = await getAllBangs(walletManager);
+      const result = await getAllBangs();
       updateUIData(result);
-      cacheModule.set(cacheKey, result, "bangs");
       lastFetchTime.value = now;
       console.log(
         "Data fetched and updated successfully for wallet:",
@@ -74,11 +64,11 @@ export function useBangs() {
     try {
       for (const bang of newBangs) {
         if (bang.isNew) {
-          await createBang(walletManager, bang.name, bang.url);
+          await createBang(bang.name, bang.url);
         } else if (bang.isDeleted) {
-          await deleteBang(walletManager, bang.name);
+          await deleteBang(bang.name);
         } else if (bang.isUpdated) {
-          await updateBang(walletManager, bang.oldName, bang.name, bang.url);
+          await updateBang(bang.oldName, bang.name, bang.url);
         }
       }
 
@@ -95,13 +85,34 @@ export function useBangs() {
       return;
     }
 
+    console.log("NEW FALLBACK");
+    console.log(newFallback);
+
     try {
-      await updateFallbackSearchEngine(walletManager, newFallback);
-      fallbackSearchEngine.value = newFallback;
-      const cachedData = cacheModule.get(getCacheKey(), "bangs");
-      if (cachedData) {
-        cachedData.FallbackSearchEngine = newFallback;
-        cacheModule.set(getCacheKey(), cachedData, "bangs");
+      const result = await walletManager.sendMessageToArweave(
+        [
+          { name: "Action", value: "UpdateFallbackSearchEngine" },
+          { name: "URL", value: newFallback },
+        ],
+        "",
+        walletManager.processId,
+      );
+
+      if (result.Messages && result.Messages.length > 0) {
+        const response = JSON.parse(result.Messages[0].Data);
+        if (response.success) {
+          fallbackSearchEngine.value = response.url;
+          // emit("update:fallbackSearchEngine", response.url);
+          // emit("force-update");
+        } else {
+          throw new Error(
+            response.error || "Failed to update fallback search engine",
+          );
+        }
+      } else {
+        throw new Error(
+          "No response from update fallback search engine handler",
+        );
       }
     } catch (error) {
       console.error("Error updating fallback search engine:", error);
@@ -116,12 +127,28 @@ export function useBangs() {
     }
 
     try {
-      await updateArweaveExplorer(walletManager, newExplorer);
-      arweaveExplorer.value = newExplorer;
-      const cachedData = cacheModule.get(getCacheKey(), "bangs");
-      if (cachedData) {
-        cachedData.ArweaveExplorer = newExplorer;
-        cacheModule.set(getCacheKey(), cachedData, "bangs");
+      const result = await walletManager.sendMessageToArweave(
+        [
+          { name: "Action", value: "UpdateArweaveExplorer" },
+          { name: "URL", value: newExplorer },
+        ],
+        "",
+        walletManager.processId,
+      );
+
+      if (result.Messages && result.Messages.length > 0) {
+        const response = JSON.parse(result.Messages[0].Data);
+        if (response.success) {
+          arweaveExplorer.value = response.url;
+          // emit("update:arweaveExplorer", response.url);
+          // emit("force-update");
+        } else {
+          throw new Error(
+            response.error || "Failed to update Arweave explorer",
+          );
+        }
+      } else {
+        throw new Error("No response from update Arweave explorer handler");
       }
     } catch (error) {
       console.error("Error updating Arweave explorer:", error);
@@ -134,7 +161,6 @@ export function useBangs() {
     fallbackSearchEngine.value = "https://google.com/search?q=%s";
     arweaveExplorer.value = "https://viewblock.io/arweave/tx/%s";
     lastFetchTime.value = null;
-    cacheModule.clear("bangs");
   }
 
   // Watch for wallet connection changes

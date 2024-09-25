@@ -5,10 +5,17 @@
             :class="{ 'show-shortcuts': showShortcuts }"
         >
             <span class="shortcut">
-                <kbd>{{ modifierKey }}</kbd> + <kbd>K</kbd> Search
+                Search <kbd>{{ modifierKey }}</kbd> + <kbd>K</kbd>
             </span>
             <span class="shortcut">
-                <kbd>{{ modifierKey }}</kbd> + <kbd>E</kbd> Edit Bangs
+                Edit Bangs <kbd>{{ modifierKey }}</kbd> + <kbd>E</kbd>
+            </span>
+            <span class="shortcut">
+                Normal Search <kbd>Esc</kbd> <kbd>Enter</kbd>
+            </span>
+            <span class="shortcut default-engine">
+                Set as default search engine:
+                <strong>nav_tiny4vr.ar.io?q=%s</strong>
             </span>
         </div>
         <div
@@ -91,6 +98,16 @@ kbd {
     border-radius: 3px;
     padding: 2px 4px;
     font-size: 11px;
+}
+
+.default-engine {
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.default-engine strong {
+    font-style: normal;
+    opacity: 1;
 }
 
 .shortcut-toggle {

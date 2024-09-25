@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "lua scripts/ardriveBuild.lua --prod"
   },
   "dependencies": {
     "@ar.io/sdk": "^2.2.1",
@@ -35,6 +36,7 @@
     "process": "^0.11.10",
     "rollup-plugin-node-polyfills": "^0.2.1",
     "stream-browserify": "^3.0.0",
+    "terser": "^5.33.0",
     "util": "^0.12.5",
     "vite": "^latest"
   },
