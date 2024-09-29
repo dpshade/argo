@@ -1,6 +1,6 @@
 {
   "fallback": {
-    "id": "-mECaaaNSvD0buf92zZXapT013fPuPkY8fap0iQnJxA"
+    "id": "7Dqth0hLysKo5mjlody_qJJyaovF8VrhMbcFDBQir2I"
   },
   "index": {
     "path": "index.html"
@@ -8,19 +8,19 @@
   "manifest": "arweave/paths",
   "paths": {
     "ao/main.lua": {
-      "id": "wV9hMLvtd9HOl7iw7HvBZl8uPhkITCuLCv8mIM8LqnU"
+      "id": "UGL8pqhAXprZngapjEN33gR6zpGx9qOQtVMACnkrjAQ"
     },
     "assets/main.css": {
-      "id": "HnizZk_4E2cuN1FszS52PnzxJo81DrwJdaL7izX_BRI"
+      "id": "qW1MD7IXGXIuoxxys57lDoiCcwY0_8DoiWDcfdsCMNU"
     },
     "assets/main.js": {
-      "id": "gc3LB-ZQhQOYX1YQTL_01zg8mEuHNMn5sPQvDcndjzU"
+      "id": "5SR7riKiCTNWBhNugPbaE7s6l99RuDLfC2I9ZoSme1c"
     },
     "index.html": {
-      "id": "-mECaaaNSvD0buf92zZXapT013fPuPkY8fap0iQnJxA"
+      "id": "7Dqth0hLysKo5mjlody_qJJyaovF8VrhMbcFDBQir2I"
     },
     "vite.svg": {
-      "id": "o5eVObSpjaK5oV-x7x7sYZUJ-FVoYz2Wympqyt40-oU"
+      "id": "-AdEAeruKltNbSLh17M8OuZRrbKxQqmBPKW2-REdB4E"
     }
   },
   "version": "0.2.0"
