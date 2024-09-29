@@ -67,9 +67,7 @@ local function encodeURIComponent(str)
 end
 
 local function formatUrl(url, term)
-    -- Check if the URL contains a %s or %S placeholder
     if url:match("%%[sS]") then
-        -- Replace %s with URL-encoded term and %S with non-encoded term
         return url:gsub("%%([sS])", function(placeholder)
             if placeholder == "s" then
                 return encodeURIComponent(term)
@@ -78,8 +76,7 @@ local function formatUrl(url, term)
             end
         end)
     else
-        -- If no placeholder, append the encoded term
-        return url .. encodeURIComponent(term)
+        return url
     end
 end
 
