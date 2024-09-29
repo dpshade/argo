@@ -2,7 +2,7 @@ local json = require("json")
 
 -- Load configuration from a separate file
 local function load_config()
-    local config_file = io.open("tinynav-config.json", "r")
+    local config_file = io.open("ardrive-config.json", "r")
     if not config_file then
         print("Error: tinynav-config.json not found. Please create this file with your ArDrive configuration.")
         os.exit(1)
