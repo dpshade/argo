@@ -1,33 +1,33 @@
 {
-  "build_id": "1727636205-997b",
-  "build_timestamp": "2024-09-29 14:56:46",
-  "file_hash": "771e54c7e69d7515ed13286c768cddef2337b0e313df23eb043e3d5648e31467",
+  "build_id": "1727636369-05d3",
+  "build_timestamp": "2024-09-29 14:59:30",
+  "file_hash": "676fcaf7e4824e6833a6eca385d19e6b25cb82adcdbb8882c46f4d2abf31cf1d",
   "files": {
     "ao/main.lua": {
-      "tx_id": "l7GTRI5sC3esKwASMAO1GCabP3nKpcOIsPWIxuVXrTk",
+      "tx_id": "wV9hMLvtd9HOl7iw7HvBZl8uPhkITCuLCv8mIM8LqnU",
       "type": "file"
     },
     "assets/main.css": {
-      "tx_id": "lmXuUtPjFCo3koBs62dFVdbrP7P16t_fnQC071_qFF8",
+      "tx_id": "HnizZk_4E2cuN1FszS52PnzxJo81DrwJdaL7izX_BRI",
       "type": "file"
     },
     "assets/main.js": {
-      "tx_id": "WEc_jguAsPx7iomJKHzY5LXAKS3hlOTJBMM-IFYixZk",
+      "tx_id": "gc3LB-ZQhQOYX1YQTL_01zg8mEuHNMn5sPQvDcndjzU",
       "type": "file"
     },
     "index.html": {
-      "tx_id": "iZP3B_gGRpJlnJTqLnBgQ0yv3-_eXc2Lp2iqNQvYv2E",
+      "tx_id": "-mECaaaNSvD0buf92zZXapT013fPuPkY8fap0iQnJxA",
       "type": "file"
     },
     "vite.svg": {
-      "tx_id": "bSMMAE8IeOWoavrGnjvxv8QR3KIrTiDry112pS4hvBY",
+      "tx_id": "o5eVObSpjaK5oV-x7x7sYZUJ-FVoYz2Wympqyt40-oU",
       "type": "file"
     }
   },
   "is_production_build": true,
   "manifest": {
-    "tx_id": "lLAap7Ltyy9SWmLQSYTSvw85xXlTk1cd8e3uEX3rZGY",
+    "tx_id": "sgSLKhdxFnuRDs2SFkP8SHEyObgB9F97sb51kJF65d8",
     "type": "file"
   },
-  "version": "0.19.0"
+  "version": "0.20.0"
 }
