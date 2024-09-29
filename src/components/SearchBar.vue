@@ -28,6 +28,8 @@ const isFullScreen = ref(false);
 const isInputFocused = ref(false);
 const isMouseHovering = ref(false);
 const isMobile = ref(window.innerWidth <= 768);
+const arnsProcessIds = ref({});
+const arnsUndernameSuggestions = ref([]);
 
 const formatUrl = (url, maxLength = 30) => {
     const formatted = url
@@ -178,6 +180,14 @@ const suggestions = computed(() => {
     if (filtered.length > 0 && !isMouseHovering.value && !isMobile.value)
         hoveredIndex.value = lastKeyboardHoveredIndex.value;
 
+    if (filtered.length > 0 && filtered[0].type === "arns") {
+        return [
+            filtered[0],
+            ...arnsUndernameSuggestions.value,
+            ...filtered.slice(1),
+        ];
+    }
+
     return filtered;
 });
 
@@ -187,13 +197,21 @@ const handleSuggestionAction = {
         query.value = "";
         showSuggestions.value = false;
     },
+    arns_undername: (text) => {
+        const [undername, domain] = text.split("_");
+        const url = `https://${undername}_${domain}.ar.io`;
+        console.log("Opening ArNS undername URL:", url); // Debug log
+        window.open(url, "_blank");
+        query.value = "";
+        showSuggestions.value = false;
+    },
     bang: (text) => handleBangSearch(text),
     tx: () => pasteFromClipboard(),
     txData: () => pasteFromClipboard("!"),
     rawTx: () => pasteFromClipboard("!raw "),
 };
 
-function onSubmit(event) {
+async function onSubmit(event) {
     event.preventDefault();
     const trimmedQuery = query.value.trim();
 
@@ -311,12 +329,25 @@ const onInputBlur = () => {
     isInputFocused.value = false;
 };
 
-function selectSuggestion(suggestion) {
+async function selectSuggestion(suggestion) {
     console.log("Selecting suggestion:", suggestion);
     const { type, text } = suggestion;
     const currentQuery = query.value;
 
-    if (type === "bang") {
+    if (type === "arns") {
+        const url = `https://${text}.ar.io`;
+        console.log("Opening ArNS URL:", url); // Debug log
+        window.open(url, "_blank");
+        query.value = "";
+        showSuggestions.value = false;
+    } else if (type === "arns_undername") {
+        const [undername, domain] = text.split("_");
+        const url = `https://${undername}_${domain}.ar.io`;
+        console.log("Opening ArNS undername URL:", url); // Debug log
+        window.open(url, "_blank");
+        query.value = "";
+        showSuggestions.value = false;
+    } else if (type === "bang") {
         console.log("Current query:", currentQuery);
         console.log("Bang name:", text);
 
@@ -398,7 +429,49 @@ function exitFullScreen() {
 onMounted(async () => {
     focusInput();
     try {
-        arnsDomains.value = await walletManager.dryRunAllArns();
+        const rawArnsDomains = await walletManager.dryRunAllArns();
+        arnsDomains.value = rawArnsDomains
+            .map((domain) => {
+                if (typeof domain === "string") {
+                    try {
+                        return JSON.parse(domain).name;
+                    } catch (e) {
+                        console.error("Error parsing domain:", domain, e);
+                        return null;
+                    }
+                } else if (
+                    domain &&
+                    typeof domain === "object" &&
+                    domain.name
+                ) {
+                    return domain.name;
+                }
+                return null;
+            })
+            .filter(Boolean);
+
+        arnsProcessIds.value = rawArnsDomains.reduce((acc, domain) => {
+            if (typeof domain === "string") {
+                try {
+                    const parsedDomain = JSON.parse(domain);
+                    acc[parsedDomain.name] = parsedDomain.processId;
+                } catch (e) {
+                    console.error(
+                        "Error parsing domain for processId:",
+                        domain,
+                        e,
+                    );
+                }
+            } else if (
+                domain &&
+                typeof domain === "object" &&
+                domain.name &&
+                domain.processId
+            ) {
+                acc[domain.name] = domain.processId;
+            }
+            return acc;
+        }, {});
     } catch (error) {
         console.error("Failed to load ArNS domains:", error);
     }
@@ -417,6 +490,39 @@ watch(
     },
     { immediate: true },
 );
+
+watch(filteredSuggestions, async (newSuggestions) => {
+    arnsUndernameSuggestions.value = [];
+
+    if (newSuggestions.length > 0 && newSuggestions[0].type === "arns") {
+        const arnsName = newSuggestions[0].text;
+        const processId = arnsProcessIds.value[arnsName];
+
+        if (!processId) {
+            console.warn(`No process ID found for ArNS: ${arnsName}`);
+            return;
+        }
+
+        try {
+            const records = await walletManager.getRecords(processId);
+            if (records && records.length > 0) {
+                const dataField = JSON.parse(records[0].Data);
+                arnsUndernameSuggestions.value = Object.keys(dataField)
+                    .filter((key) => key !== "@")
+                    .map((key) => ({
+                        text: `${key}_${arnsName}`,
+                        description: `ArNS undername for ${arnsName}`,
+                        formattedUrl: formatUrl(
+                            `https://${key}_${arnsName}.ar.io`,
+                        ),
+                        type: "arns_undername",
+                    }));
+            }
+        } catch (error) {
+            console.error("Error handling ArNS suggestion:", error);
+        }
+    }
+});
 
 defineExpose({ focusInput });
 </script>

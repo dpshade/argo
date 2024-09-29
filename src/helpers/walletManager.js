@@ -206,7 +206,7 @@ class WalletManager {
   }
 
   async dryRunAllArns() {
-    const processId = "ihs9ILgtonyPraKmOOEXhS4JwXU2k_EgMJz1ZdL8Umo";
+    const processId = "GkrdZJuO-i4zRoG0Xjm3ZCp_wA9E2HrCG5AuVS1lzkc";
     try {
       const { Messages, Error } = await dryrun({
         process: processId,
@@ -629,6 +629,24 @@ class WalletManager {
 
   _ensureSafeData(data) {
     return typeof data === "string" ? data : JSON.stringify(data);
+  }
+
+  async getRecords(processId) {
+    this._checkWalletConnection();
+    try {
+      const { Messages, Error } = await this.dryRunArweave(
+        [{ name: "Action", value: "Records" }],
+        "",
+        processId,
+      );
+
+      if (Error) throw new Error(Error);
+
+      return Messages;
+    } catch (error) {
+      console.error("Error in getRecords:", error);
+      throw error;
+    }
   }
 }
 
