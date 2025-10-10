@@ -70,19 +70,20 @@ const formatUrl = (url, maxLength = 30) => {
 const glossarySuggestionsComp = computed(() => {
     if (query.value.length <= 2) return [];
 
-    const results = searchGlossary(query.value, 5);
+    const results = searchGlossary(query.value, 10); // Get more results for merging
     return results.map((term) => ({
         text: term.term,
         description: term.category || "Glossary Term",
         type: "glossary",
         termData: term, // Store full term data for modal
+        score: term.score, // Preserve score for sorting
     }));
 });
 
 const docsSuggestionsComp = computed(() => {
     if (query.value.length <= 2) return [];
 
-    const results = searchDocs(query.value, 5);
+    const results = searchDocs(query.value, 10); // Get more results for merging
 
     // Group results by title to detect duplicates
     const titleCounts = {};
@@ -120,6 +121,7 @@ const docsSuggestionsComp = computed(() => {
             formattedUrl: formatUrl(doc.url),
             fullUrl: doc.url,
             type: "docs",
+            score: doc.score, // Preserve score for sorting
         };
     });
 });
@@ -200,8 +202,13 @@ const filteredSuggestions = computed(() => {
     const glossary = glossarySuggestionsComp.value;
     const docs = docsSuggestionsComp.value;
 
-    // Priority order: ArNS first, then Glossary, then Docs
-    return [...arns, ...glossary, ...docs];
+    // Merge glossary and docs by relevance score (interleave them)
+    const mergedDocsGlossary = [...glossary, ...docs]
+        .sort((a, b) => b.score - a.score) // Sort by score descending
+        .slice(0, 5); // Limit to top 5 results
+
+    // Priority order: ArNS first, then merged docs/glossary by relevance
+    return [...arns, ...mergedDocsGlossary];
 });
 
 const suggestions = computed(() => {
@@ -226,9 +233,6 @@ const suggestions = computed(() => {
             }
         });
     }
-
-    if (filtered.length > 0 && !isMouseHovering.value && !isMobile.value)
-        hoveredIndex.value = lastKeyboardHoveredIndex.value;
 
     // Insert undernames directly after each ArNS suggestion
     const result = [];
@@ -330,6 +334,7 @@ function onKeyDown(event) {
         event.preventDefault();
         isKeyboardNavigating.value = true; // Enable keyboard mode
         const direction = event.key === "ArrowDown" ? 1 : -1;
+        // Navigate through the full suggestions array (including undernames)
         lastKeyboardHoveredIndex.value =
             (lastKeyboardHoveredIndex.value +
                 direction +
@@ -485,6 +490,22 @@ function searchRelatedTerm(term) {
         focusInput();
     });
 }
+
+// Watch for suggestions array changes and clamp index when needed
+watch(suggestions, (newSuggestions, oldSuggestions) => {
+    // Only clamp if the array actually shrunk (e.g., undernames disappeared)
+    if (newSuggestions.length < oldSuggestions?.length) {
+        if (hoveredIndex.value >= newSuggestions.length) {
+            hoveredIndex.value = Math.max(0, newSuggestions.length - 1);
+            lastKeyboardHoveredIndex.value = hoveredIndex.value;
+        }
+    }
+    // If array is empty, reset indices
+    if (newSuggestions.length === 0) {
+        hoveredIndex.value = 0;
+        lastKeyboardHoveredIndex.value = 0;
+    }
+});
 
 onMounted(async () => {
     focusInput();
@@ -691,11 +712,37 @@ watch([hoveredIndex, filteredSuggestions], async ([newIndex]) => {
         return;
     }
 
-    // Hovering over something else (shortcut, etc) - clear undernames
-    arnsUndernameSuggestions.value = [];
-    hoveredArnsName.value = null;
-    displayedUnderamesForArns.value = null;
-    isLoadingUndernames.value = false;
+    // Hovering over something else (shortcut, etc) - defer clearing until next tick
+    // This prevents array shrinking during navigation
+    await nextTick();
+
+    // Double-check we're still on a non-ArNS suggestion after the tick
+    const finalSuggestion = suggestions.value[hoveredIndex.value];
+    if (!finalSuggestion || (finalSuggestion.type !== "arns" && finalSuggestion.type !== "arns_undername")) {
+        // Count how many undernames we're about to remove
+        const undernamesCount = arnsUndernameSuggestions.value.length;
+
+        // Find the position of the ArNS that has undernames displayed
+        let arnsPosition = -1;
+        if (displayedUnderamesForArns.value) {
+            arnsPosition = suggestions.value.findIndex(
+                s => s.type === 'arns' && s.text === displayedUnderamesForArns.value
+            );
+        }
+
+        // Clear the undernames
+        arnsUndernameSuggestions.value = [];
+        hoveredArnsName.value = null;
+        displayedUnderamesForArns.value = null;
+        isLoadingUndernames.value = false;
+
+        // If we were positioned after the undernames, adjust index backward
+        if (arnsPosition !== -1 && hoveredIndex.value > arnsPosition) {
+            const newIndex = Math.max(0, hoveredIndex.value - undernamesCount);
+            hoveredIndex.value = newIndex;
+            lastKeyboardHoveredIndex.value = newIndex;
+        }
+    }
 });
 
 defineExpose({ focusInput });

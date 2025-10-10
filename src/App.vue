@@ -15,12 +15,8 @@ const showResult = ref(false);
 
 const { searchResult, performSearch } = useSearch(isLoading);
 
-const {
-    isHeadless,
-    isDarkMode,
-    toggleDarkMode,
-    handleUrlParams,
-} = useAppState();
+const { isHeadless, isDarkMode, toggleDarkMode, handleUrlParams } =
+    useAppState();
 
 async function handleSearch(query) {
     if (isLoading.value) return;
@@ -117,11 +113,8 @@ onMounted(async () => {
         </button>
         <div class="container" :class="{ 'dark-mode': isDarkMode }">
             <div class="search-section">
-                <h1 class="title">Argo</h1>
-                <SearchBar
-                    ref="searchBarRef"
-                    @search="handleSearch"
-                />
+                <h1 class="title" style="margin-bottom: 4px">Argo</h1>
+                <SearchBar ref="searchBarRef" @search="handleSearch" />
                 <a
                     v-show="showResult"
                     :key="searchResult"
@@ -180,8 +173,9 @@ html {
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        Helvetica, Arial, sans-serif;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+        sans-serif;
     background-color: var(--bg-color);
     color: var(--text-color);
     overflow-y: hidden;
