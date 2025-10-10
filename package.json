@@ -10,7 +10,8 @@
     "deploy": "lua scripts/ardriveBuild.lua --prod"
   },
   "dependencies": {
-    "@ar.io/sdk": "^2.2.1",
+    "@ar.io/sdk": "3.21.0",
+    "@ar.io/wayfinder-core": "^1.6.1",
     "@permaweb/aoconnect": "^0.0.59",
     "lodash": "^4.17.21",
     "vue": "^3.4.37"

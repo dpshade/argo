@@ -7,7 +7,6 @@ import SearchBar from "./components/SearchBar.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
 import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
-import { quicklinks, defaultSettings } from "./defaults";
 
 const searchBarRef = ref(null);
 const isLoading = ref(false);
@@ -23,13 +22,21 @@ const {
     handleUrlParams,
 } = useAppState();
 
-async function handleSearch(query, forceFallback = false) {
+async function handleSearch(query) {
     if (isLoading.value) return;
 
     isLoading.value = true;
     showResult.value = false;
     try {
-        const result = await performSearch(query, forceFallback);
+        const result = await performSearch(query);
+
+        if (result === null) {
+            // No match found - do nothing
+            searchResult.value = "No match found";
+            showResult.value = true;
+            return;
+        }
+
         searchResult.value = result;
         showResult.value = true;
 
@@ -114,7 +121,6 @@ onMounted(async () => {
                 <SearchBar
                     ref="searchBarRef"
                     @search="handleSearch"
-                    :customBangs="quicklinks"
                 />
                 <a
                     v-show="showResult"

@@ -1,26 +1,27 @@
 import { ref } from "vue";
-import { quicklinks, defaultSettings } from "../defaults";
+import { specialShortcuts, defaultSettings } from "../defaults";
 import { handleSearch as handleSearchLogic } from "../helpers/searchLogic";
 
 export function useSearch(isLoading) {
   const searchResult = ref("");
 
-  async function performSearch(query, forceFallback = false) {
-    console.log("performSearch called with:", {
-      query,
-      forceFallback,
-    });
+  async function performSearch(query) {
+    console.log("performSearch called with:", query);
 
     isLoading.value = true;
     try {
-      // Use local quicklinks and default settings
-      const result = handleSearchLogic(
+      // Use special shortcuts and default settings
+      const result = await handleSearchLogic(
         query,
-        quicklinks,
-        defaultSettings.fallbackSearchEngine,
+        specialShortcuts,
         defaultSettings.arweaveExplorer,
-        forceFallback,
       );
+
+      if (result === null) {
+        searchResult.value = null;
+        console.log("No match found for query:", query);
+        return null;
+      }
 
       searchResult.value = result;
       console.log("Search result:", result);

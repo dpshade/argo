@@ -1,18 +1,8 @@
-import { IO, AOProcess } from "@ar.io/sdk";
-import { connect } from "@permaweb/aoconnect";
+import { ARIO } from "@ar.io/sdk/web";
 import { cacheModule } from "./cacheModule";
 
-const AO_CU_URL = "https://cu.ar-io.dev";
-const testnetProcessId = "agYcCFJtrMG6cqMuZfskIkFTGvUPddICmtQSBIoPdiA";
-
-const io = IO.init({
-  process: new AOProcess({
-    processId: testnetProcessId,
-    ao: connect({
-      CU_URL: AO_CU_URL,
-    }),
-  }),
-});
+// Initialize ARIO for mainnet (SDK v3.21.0)
+const ario = ARIO.mainnet();
 
 const checkAccess = async (link) => {
   const cachedStatus = cacheModule.get(`accessStatus_${link}`, "arns");
@@ -46,7 +36,7 @@ export const checkArNSRecord = async (domain) => {
   }
 
   try {
-    const record = await io.getArNSRecord({ name: domain });
+    const record = await ario.getArNSRecord({ name: domain });
     const exists = record !== null;
 
     cacheModule.set(`arnsRecord_${domain}`, exists, "arns");
@@ -69,7 +59,7 @@ const fetchAllGateways = async () => {
     let nextCursor = null;
 
     do {
-      const gatewaysData = await io.getGateways({ cursor: nextCursor });
+      const gatewaysData = await ario.getGateways({ cursor: nextCursor });
       console.log("Fetched gateways data:", gatewaysData);
 
       if (gatewaysData && Array.isArray(gatewaysData.items)) {

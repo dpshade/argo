@@ -47,6 +47,8 @@ export default defineConfig(({ command, mode }) => {
     optimizeDeps: {
       include: [
         "vue",
+        "@ar.io/sdk",
+        "@ar.io/sdk/web",
         "@permaweb/aoconnect",
         "arweavekit/auth",
         "quick-wallet",

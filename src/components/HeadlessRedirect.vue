@@ -5,7 +5,7 @@
 <script setup>
 import { onMounted } from "vue";
 import { handleSearch } from "../helpers/searchLogic.js";
-import { quicklinks, defaultSettings } from "../defaults.js";
+import { defaultSettings } from "../defaults.js";
 
 async function performSearch(query) {
     console.log("Performing headless search with query:", query);

@@ -3,22 +3,11 @@ import { resolveArNSDomain, checkArNSRecord } from "./arnsResolver";
 
 export async function handleSearch(
   query,
-  bangs = [],
-  fallbackSearchEngine = "https://google.com/search?q=%s",
+  specialShortcuts = [],
   arweaveExplorer = "https://viewblock.io/arweave/tx/%s",
-  forceFallback = false,
 ) {
   const trimmedQuery = query.trim();
   console.log("Searching:", trimmedQuery);
-
-  // If forceFallback is true, skip all other checks and use the fallback search engine
-  if (forceFallback) {
-    const searchUrl = fallbackSearchEngine.replace(
-      "%s",
-      encodeURIComponent(trimmedQuery),
-    );
-    return `Redirecting to: ${searchUrl}`;
-  }
 
   // Check cache first for exact match
   const cachedRedirect = cacheModule.get(trimmedQuery, "redirect");
@@ -28,46 +17,24 @@ export async function handleSearch(
 
   const words = trimmedQuery.split(/\s+/);
 
-  // Check all bangs first
-  if (bangs && bangs.length > 0) {
+  // Check special shortcuts (tx, data, msg, vb)
+  if (specialShortcuts && specialShortcuts.length > 0) {
     // Check for exact match with first word
-    const exactBang = bangs.find(
-      (b) => words[0].toLowerCase() === b.name.toLowerCase(),
+    const exactShortcut = specialShortcuts.find(
+      (s) => words[0].toLowerCase() === s.name.toLowerCase(),
     );
-    if (exactBang) {
+    if (exactShortcut) {
       const searchTerm = words.slice(1).join(" ");
-      const redirectUrl = exactBang.url.replace(
+      const redirectUrl = exactShortcut.url.replace(
         "%s",
         encodeURIComponent(searchTerm),
       );
-      cacheModule.set(exactBang.name, { url: exactBang.url }, "redirect");
+      cacheModule.set(exactShortcut.name, { url: exactShortcut.url }, "redirect");
       return `Redirecting to: ${redirectUrl}`;
-    }
-
-    // Check for bang anywhere in the query
-    for (let i = 0; i < words.length; i++) {
-      const potentialBang = bangs.find(
-        (b) => words[i].toLowerCase() === b.name.toLowerCase(),
-      );
-      if (potentialBang) {
-        const searchTerm = [...words.slice(0, i), ...words.slice(i + 1)].join(
-          " ",
-        );
-        const redirectUrl = potentialBang.url.replace(
-          "%s",
-          encodeURIComponent(searchTerm),
-        );
-        cacheModule.set(
-          potentialBang.name,
-          { url: potentialBang.url },
-          "redirect",
-        );
-        return `Redirecting to: ${redirectUrl}`;
-      }
     }
   }
 
-  // Check for ArNS domain only if no bangs matched
+  // Check for ArNS domain only if no shortcuts matched
   if (!trimmedQuery.includes(" ") && /^[a-zA-Z0-9_-]+$/.test(trimmedQuery)) {
     const isArNS = await checkArNSRecord(trimmedQuery);
     if (isArNS) {
@@ -89,10 +56,6 @@ export async function handleSearch(
     return `Redirecting to: ${explorerUrl}`;
   }
 
-  // Use fallback search engine
-  const searchUrl = fallbackSearchEngine.replace(
-    "%s",
-    encodeURIComponent(trimmedQuery),
-  );
-  return `Redirecting to: ${searchUrl}`;
+  // Nothing matched - return null
+  return null;
 }
