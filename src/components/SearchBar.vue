@@ -36,6 +36,8 @@ const activePanel = ref("main"); // Track which panel has focus: "main" or "unde
 const undernameHoveredIndex = ref(0); // Track hovered index in undernames panel
 let undernamesFetchTimeout = null; // For debouncing undername fetches
 const optimalGateway = ref("ar.io"); // Default gateway, will be updated by Wayfinder
+const undernameCountCache = ref({}); // Cache of ArNS name -> undername count
+const undernameDataCache = ref({}); // Cache of ArNS name -> undername objects array
 const docsSuggestions = ref([]);
 const showGlossaryModal = ref(false);
 const selectedGlossaryTerm = ref(null);
@@ -311,16 +313,22 @@ async function onSubmit(event) {
     exitFullScreen();
 }
 
-async function fetchUndernamesForArns(arnsName) {
-    arnsUndernameSuggestions.value = [];
-    displayedUnderamesForArns.value = null;
-    lastFetchedArnsName.value = arnsName;
-    isLoadingUndernames.value = true;
+async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
+    // If we have cached data and should display, show it immediately
+    if (shouldDisplay && undernameDataCache.value[arnsName]) {
+        arnsUndernameSuggestions.value = undernameDataCache.value[arnsName];
+        displayedUnderamesForArns.value = arnsName;
+        lastFetchedArnsName.value = arnsName;
+        activePanel.value = "undernames";
+        undernameHoveredIndex.value = 0;
+        // Continue to refetch in background to get latest data
+    }
 
     const processId = arnsProcessIds.value[arnsName];
     if (!processId) {
         console.warn(`No process ID found for ArNS: ${arnsName}`);
-        isLoadingUndernames.value = false;
+        undernameCountCache.value[arnsName] = 0;
+        undernameDataCache.value[arnsName] = [];
         return;
     }
 
@@ -333,7 +341,7 @@ async function fetchUndernamesForArns(arnsName) {
 
         if (result.Messages && result.Messages.length > 0) {
             const dataField = JSON.parse(result.Messages[0].Data);
-            arnsUndernameSuggestions.value = Object.keys(dataField)
+            const undernames = Object.keys(dataField)
                 .filter((key) => key !== "@")
                 .map((key) => ({
                     text: `${key}_${arnsName}`,
@@ -341,19 +349,43 @@ async function fetchUndernamesForArns(arnsName) {
                     url: `https://${key}_${arnsName}.${optimalGateway.value}`,
                     type: "arns_undername",
                 }));
-            displayedUnderamesForArns.value = arnsName;
 
-            // Auto-focus undernames panel when undernames appear
-            if (arnsUndernameSuggestions.value.length > 0) {
+            // Cache both count and data
+            undernameCountCache.value[arnsName] = undernames.length;
+            undernameDataCache.value[arnsName] = undernames;
+
+            // Only display if requested (e.g., from right arrow or hover)
+            if (shouldDisplay && undernames.length > 0) {
+                arnsUndernameSuggestions.value = undernames;
+                displayedUnderamesForArns.value = arnsName;
+                lastFetchedArnsName.value = arnsName;
                 activePanel.value = "undernames";
                 undernameHoveredIndex.value = 0;
             }
+        } else {
+            // Cache 0 count and empty array if no undernames found
+            undernameCountCache.value[arnsName] = 0;
+            undernameDataCache.value[arnsName] = [];
         }
-        isLoadingUndernames.value = false;
     } catch (error) {
-        console.error("Error fetching undernames:", error);
-        isLoadingUndernames.value = false;
+        console.error(`Error fetching undernames for ${arnsName}:`, error);
+        undernameCountCache.value[arnsName] = 0;
+        undernameDataCache.value[arnsName] = [];
     }
+}
+
+async function fetchAllUndernamesForArnsResults(arnsSuggestions) {
+    // Fetch undernames for all ArNS in the results (in background)
+    const fetchPromises = arnsSuggestions.map(suggestion => {
+        const arnsName = suggestion.text;
+        // Skip if already cached
+        if (undernameCountCache.value[arnsName] !== undefined) {
+            return Promise.resolve();
+        }
+        return fetchUndernamesForArns(arnsName, false);
+    });
+
+    await Promise.all(fetchPromises);
 }
 
 function onKeyDown(event) {
@@ -418,9 +450,12 @@ function onKeyDown(event) {
                 );
                 hoveredIndex.value = lastKeyboardHoveredIndex.value;
             } else if (newIndex < 0) {
-                // Moving up past first undername - return to main panel at current ArNS
+                // Moving up past first undername - close panel and navigate up in main results
                 activePanel.value = "main";
                 undernameHoveredIndex.value = 0;
+                // Move up one item in main suggestions
+                lastKeyboardHoveredIndex.value = Math.max(hoveredIndex.value - 1, 0);
+                hoveredIndex.value = lastKeyboardHoveredIndex.value;
             } else {
                 // Normal navigation within undernames
                 undernameHoveredIndex.value = newIndex;
@@ -455,15 +490,27 @@ function onKeyDown(event) {
 
 function scrollSuggestionIntoView() {
     nextTick(() => {
-        const suggestionElements =
-            suggestionsRef.value.querySelectorAll(".suggestion");
-        if (suggestionElements[isMobile.value ? 0 : hoveredIndex.value]) {
-            suggestionElements[
-                isMobile.value ? 0 : hoveredIndex.value
-            ].scrollIntoView({
-                behavior: "smooth",
-                block: "nearest",
-            });
+        if (activePanel.value === "undernames") {
+            // Scroll undernames panel
+            const undernameElements = document.querySelectorAll(".undername-item");
+            if (undernameElements[undernameHoveredIndex.value]) {
+                undernameElements[undernameHoveredIndex.value].scrollIntoView({
+                    behavior: "smooth",
+                    block: "nearest",
+                });
+            }
+        } else {
+            // Scroll main suggestions panel
+            const suggestionElements =
+                suggestionsRef.value.querySelectorAll(".suggestion");
+            if (suggestionElements[isMobile.value ? 0 : hoveredIndex.value]) {
+                suggestionElements[
+                    isMobile.value ? 0 : hoveredIndex.value
+                ].scrollIntoView({
+                    behavior: "smooth",
+                    block: "nearest",
+                });
+            }
         }
     });
 }
@@ -719,88 +766,64 @@ watch(
         isKeyboardNavigating.value = false; // Reset keyboard mode when typing
         activePanel.value = "main"; // Reset to main panel when typing
         undernameHoveredIndex.value = 0;
+        // Collapse undernames panel when search input changes
+        displayedUnderamesForArns.value = null;
+        arnsUndernameSuggestions.value = [];
     },
     { immediate: true },
 );
 
-// Watch for hovered index changes to fetch undernames for hovered ArNS
-watch([hoveredIndex, filteredSuggestions], ([newIndex]) => {
-    // Clear any pending fetch timeout
-    if (undernamesFetchTimeout) {
-        clearTimeout(undernamesFetchTimeout);
-        undernamesFetchTimeout = null;
-    }
+// Watch for suggestions changes and fetch undernames for all ArNS results in background
+watch(suggestions, (newSuggestions) => {
+    // Filter to only ArNS suggestions
+    const arnsSuggestions = newSuggestions.filter(s => s.type === "arns");
 
+    if (arnsSuggestions.length > 0) {
+        // Fetch undernames for all ArNS results in the background (non-blocking)
+        fetchAllUndernamesForArnsResults(arnsSuggestions);
+    }
+});
+
+// Watch for hovering over ArNS with cached undernames - instantly expand panel
+watch(hoveredIndex, (newIndex) => {
     const currentSuggestion = suggestions.value[newIndex];
 
-    // If hovering over an ArNS suggestion, fetch its undernames after delay
     if (currentSuggestion && currentSuggestion.type === "arns") {
         const arnsName = currentSuggestion.text;
+        const count = undernameCountCache.value[arnsName];
 
-        // If we already fetched this ArNS and it's displayed, just keep it
-        if (arnsName === displayedUnderamesForArns.value) {
-            return;
-        }
-
-        // If we already fetched this ArNS before (cached), show it immediately
-        if (arnsName === lastFetchedArnsName.value && arnsUndernameSuggestions.value.length > 0) {
-            displayedUnderamesForArns.value = arnsName;
-            return;
-        }
-
-        // Add 500ms delay before fetching to avoid spam when navigating quickly
-        undernamesFetchTimeout = setTimeout(async () => {
-            arnsUndernameSuggestions.value = [];
+        // If we have cached undernames for this ArNS, instantly expand panel
+        if (count > 0) {
+            // Fetch with display enabled to show the panel
+            fetchUndernamesForArns(arnsName, true);
+        } else {
+            // No undernames or still loading - collapse panel
             displayedUnderamesForArns.value = null;
-            lastFetchedArnsName.value = arnsName;
-            isLoadingUndernames.value = true;
-
-            const processId = arnsProcessIds.value[arnsName];
-            if (!processId) {
-                console.warn(`No process ID found for ArNS: ${arnsName}`);
-                isLoadingUndernames.value = false;
-                return;
-            }
-
-            try {
-                const ao = connect();
-                const result = await ao.dryrun({
-                    process: processId,
-                    tags: [{ name: "Action", value: "Records" }],
-                });
-
-                if (result.Messages && result.Messages.length > 0) {
-                    const dataField = JSON.parse(result.Messages[0].Data);
-                    arnsUndernameSuggestions.value = Object.keys(dataField)
-                        .filter((key) => key !== "@")
-                        .map((key) => ({
-                            text: `${key}_${arnsName}`,
-                            description: `Undername for ${arnsName}`,
-                            url: `https://${key}_${arnsName}.${optimalGateway.value}`,
-                            type: "arns_undername",
-                        }));
-                    displayedUnderamesForArns.value = arnsName;
-
-                    // Auto-focus undernames panel when undernames appear
-                    if (arnsUndernameSuggestions.value.length > 0) {
-                        activePanel.value = "undernames";
-                        undernameHoveredIndex.value = 0;
-                    }
-                }
-                isLoadingUndernames.value = false;
-            } catch (error) {
-                console.error("Error fetching undernames:", error);
-                isLoadingUndernames.value = false;
-            }
-        }, 500);
-        return;
+            arnsUndernameSuggestions.value = [];
+            activePanel.value = "main";
+        }
+    } else {
+        // Not hovering on ArNS - collapse panel
+        displayedUnderamesForArns.value = null;
+        arnsUndernameSuggestions.value = [];
+        activePanel.value = "main";
     }
-
-    // Not hovering on ArNS - clear undernames panel
-    arnsUndernameSuggestions.value = [];
-    displayedUnderamesForArns.value = null;
-    isLoadingUndernames.value = false;
 });
+
+// Watch for cache updates - if currently hovered item gets undernames, expand panel
+watch(undernameCountCache, (newCache) => {
+    const currentSuggestion = suggestions.value[hoveredIndex.value];
+
+    if (currentSuggestion && currentSuggestion.type === "arns") {
+        const arnsName = currentSuggestion.text;
+        const count = newCache[arnsName];
+
+        // If we just got undernames for the currently hovered ArNS, expand panel
+        if (count > 0 && displayedUnderamesForArns.value !== arnsName) {
+            fetchUndernamesForArns(arnsName, true);
+        }
+    }
+}, { deep: true });
 
 defineExpose({ focusInput });
 </script>
@@ -979,27 +1002,39 @@ defineExpose({ focusInput });
                                     }"
                                     >{{ suggestion.text }}</strong
                                 >
-                                <svg
+                                <div
                                     v-if="
-                                        suggestion.type === 'docs' &&
-                                        index === hoveredIndex
+                                        suggestion.type === 'arns' &&
+                                        undernameCountCache[suggestion.text] === undefined
                                     "
-                                    class="external-arrow external-arrow-inline"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    width="16"
-                                    height="16"
+                                    class="loading-dots"
                                 >
-                                    <line x1="7" y1="17" x2="17" y2="7"></line>
-                                    <polyline
-                                        points="7 7 17 7 17 17"
-                                    ></polyline>
-                                </svg>
+                                    <span class="dot"></span>
+                                    <span class="dot"></span>
+                                    <span class="dot"></span>
+                                </div>
+                                <div
+                                    v-if="
+                                        suggestion.type === 'arns' &&
+                                        undernameCountCache[suggestion.text] > 0
+                                    "
+                                    class="undernames-count"
+                                >
+                                    {{ undernameCountCache[suggestion.text] }}
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        width="12"
+                                        height="12"
+                                    >
+                                        <polyline points="9 18 15 12 9 6"></polyline>
+                                    </svg>
+                                </div>
                             </div>
                             <span
                                 v-if="
@@ -1011,23 +1046,8 @@ defineExpose({ focusInput });
                                 {{ suggestion.description }}
                             </span>
                         </div>
-                        <div
-                            v-if="
-                                suggestion.type === 'arns' &&
-                                index === hoveredIndex &&
-                                isLoadingUndernames
-                            "
-                            class="loading-dots"
-                        >
-                            <span class="dot"></span>
-                            <span class="dot"></span>
-                            <span class="dot"></span>
-                        </div>
                         <svg
-                            v-if="
-                                suggestion.type !== 'docs' &&
-                                index === hoveredIndex
-                            "
+                            v-if="index === hoveredIndex"
                             class="external-arrow"
                             xmlns="http://www.w3.org/2000/svg"
                             viewBox="0 0 24 24"
@@ -1463,9 +1483,14 @@ button:hover {
 .suggestion {
     padding: 10px;
     cursor: pointer;
+    display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+}
+
+.suggestions-wrapper.has-undernames .suggestion {
+    min-width: 0;
 }
 
 .suggestion.hovered,
@@ -1487,6 +1512,12 @@ button:hover {
     display: flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.suggestions-wrapper.has-undernames .suggestion-main {
+    overflow: hidden;
 }
 
 .suggestion-text-wrapper {
@@ -1588,6 +1619,31 @@ button:hover {
     animation: bounceHover 1.4s infinite ease-in-out both;
 }
 
+/* Undernames Count Indicator */
+.undernames-count {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--text-color);
+    opacity: 0.6;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.suggestion.hovered .undernames-count,
+.suggestion:hover .undernames-count {
+    color: white;
+    opacity: 0.9;
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.undernames-count svg {
+    flex-shrink: 0;
+}
+
 .suggestion.hovered .loading-dots .dot:nth-child(1),
 .suggestion:hover .loading-dots .dot:nth-child(1) {
     animation-delay: -0.32s;
@@ -1612,6 +1668,13 @@ button:hover {
 }
 
 /* Tag Styles */
+.tag-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
 .result-tag {
     display: inline-flex;
     align-items: center;
@@ -1623,6 +1686,20 @@ button:hover {
     letter-spacing: 0.5px;
     white-space: nowrap;
     flex-shrink: 0;
+}
+
+.undername-count {
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--text-color);
+    opacity: 0.6;
+    margin-left: 4px;
+}
+
+.suggestion.hovered .undername-count,
+.suggestion:hover .undername-count {
+    color: white;
+    opacity: 0.8;
 }
 
 .tag-arns {
