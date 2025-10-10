@@ -32,6 +32,7 @@ const lastFetchedArnsName = ref(null);
 const isLoadingUndernames = ref(false);
 const hoveredArnsName = ref(null);
 const displayedUnderamesForArns = ref(null); // Track which ArNS has undernames displayed
+const lastDisplayedUndernamesCount = ref(0); // Track how many undernames were last displayed
 let undernamesFetchTimeout = null; // For debouncing undername fetches
 const optimalGateway = ref("ar.io"); // Default gateway, will be updated by Wayfinder
 const docsSuggestions = ref([]);
@@ -622,7 +623,7 @@ watch(
 );
 
 // Watch for hovered index changes to fetch undernames for hovered ArNS
-watch([hoveredIndex, filteredSuggestions], async ([newIndex]) => {
+watch([hoveredIndex, filteredSuggestions], ([newIndex]) => {
     // Clear any pending fetch timeout
     if (undernamesFetchTimeout) {
         clearTimeout(undernamesFetchTimeout);
@@ -654,6 +655,7 @@ watch([hoveredIndex, filteredSuggestions], async ([newIndex]) => {
             arnsUndernameSuggestions.value.length > 0
         ) {
             displayedUnderamesForArns.value = arnsName;
+            lastDisplayedUndernamesCount.value = arnsUndernameSuggestions.value.length;
             return;
         }
 
@@ -697,8 +699,9 @@ watch([hoveredIndex, filteredSuggestions], async ([newIndex]) => {
                         `Loaded ${arnsUndernameSuggestions.value.length} undernames for ${arnsName}`,
                     );
 
-                    // Mark this ArNS as having displayed undernames
+                    // Mark this ArNS as having displayed undernames and save the count
                     displayedUnderamesForArns.value = arnsName;
+                    lastDisplayedUndernamesCount.value = arnsUndernameSuggestions.value.length;
                 }
 
                 // Wait for next tick to ensure undernames are rendered before hiding loading
@@ -712,36 +715,44 @@ watch([hoveredIndex, filteredSuggestions], async ([newIndex]) => {
         return;
     }
 
-    // Hovering over something else (shortcut, etc) - defer clearing until next tick
-    // This prevents array shrinking during navigation
-    await nextTick();
+    // Safety check: ensure hoveredIndex is valid
+    if (!suggestions.value || suggestions.value.length === 0 || hoveredIndex.value >= suggestions.value.length || isNaN(hoveredIndex.value)) {
+        console.log('Invalid state - suggestions not ready or invalid index');
+        return;
+    }
 
-    // Double-check we're still on a non-ArNS suggestion after the tick
+    // Hovering over something else (shortcut, etc) - clear undernames immediately
     const finalSuggestion = suggestions.value[hoveredIndex.value];
-    if (!finalSuggestion || (finalSuggestion.type !== "arns" && finalSuggestion.type !== "arns_undername")) {
-        // Count how many undernames we're about to remove
-        const undernamesCount = arnsUndernameSuggestions.value.length;
+    console.log('About to clear - hoveredIndex:', hoveredIndex.value, 'suggestion:', finalSuggestion?.text);
 
-        // Find the position of the ArNS that has undernames displayed
-        let arnsPosition = -1;
-        if (displayedUnderamesForArns.value) {
-            arnsPosition = suggestions.value.findIndex(
-                s => s.type === 'arns' && s.text === displayedUnderamesForArns.value
-            );
+    if (!finalSuggestion || (finalSuggestion.type !== "arns" && finalSuggestion.type !== "arns_undername")) {
+        // Use the LAST displayed undernames count (not the current one which might be for new ArNS)
+        const undernamesCount = lastDisplayedUndernamesCount.value;
+        console.log('Undernames to remove (from last displayed):', undernamesCount);
+
+        if (undernamesCount > 0) {
+            // Find the FIRST undername in the suggestions array
+            const firstUndernameIndex = suggestions.value.findIndex(s => s.type === 'arns_undername');
+            console.log('First undername at index:', firstUndernameIndex, 'current hoveredIndex:', hoveredIndex.value);
+
+            // PROACTIVELY adjust index BEFORE clearing undernames
+            // If we're positioned after the undernames, calculate and set the new index now
+            if (firstUndernameIndex !== -1 && hoveredIndex.value > firstUndernameIndex) {
+                const newIndex = Math.max(0, hoveredIndex.value - undernamesCount);
+                console.log('BEFORE clearing - adjusting index from', hoveredIndex.value, 'to', newIndex);
+                hoveredIndex.value = newIndex;
+                lastKeyboardHoveredIndex.value = newIndex;
+            } else {
+                console.log('No adjustment needed - not after undernames');
+            }
         }
 
-        // Clear the undernames
+        // Now clear the undernames and reset the count
         arnsUndernameSuggestions.value = [];
         hoveredArnsName.value = null;
         displayedUnderamesForArns.value = null;
         isLoadingUndernames.value = false;
-
-        // If we were positioned after the undernames, adjust index backward
-        if (arnsPosition !== -1 && hoveredIndex.value > arnsPosition) {
-            const newIndex = Math.max(0, hoveredIndex.value - undernamesCount);
-            hoveredIndex.value = newIndex;
-            lastKeyboardHoveredIndex.value = newIndex;
-        }
+        lastDisplayedUndernamesCount.value = 0; // Reset count after clearing
     }
 });
 
