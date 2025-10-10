@@ -4,7 +4,6 @@ import { resolveArNSDomain, checkArNSRecord } from "./arnsResolver";
 export async function handleSearch(
   query,
   bangs = [],
-  walletManager,
   fallbackSearchEngine = "https://google.com/search?q=%s",
   arweaveExplorer = "https://viewblock.io/arweave/tx/%s",
   forceFallback = false,

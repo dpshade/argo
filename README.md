@@ -1,82 +1,69 @@
-# TinyNav
+# Argo
 
-TinyNav is a lightweight, customizable navigation tool designed for the Arweave permaweb ecosystem. It offers a user-friendly interface with quick search capabilities, customizable bangs, and seamless integration with Arweave wallets.
+**Argo** is a fast, simple navigation launcher for the Arweave Permaweb. It provides intelligent autocomplete and quicklinks for seamless navigation across Permaweb resources.
 
-## Key Features
+## Features
 
-1. **Bang Navigation**
+### 1. **Quicklinks**
+Fast navigation using bang-style shortcuts. Type `!` followed by a keyword:
+- `!gh permaweb` - Search GitHub
+- `!yt ao explained` - Search YouTube
+- `!a laptop` - Search Amazon
+- And many more...
 
-   - Quick access to popular sites and tools using bang commands.
-   - Customizable bangs for personalized shortcuts.
-   - Example: `!g` navigates directly to Google search.
+### 2. **ArNS Resolution**
+Navigate directly to ArNS names:
+- Type `ardrive` → redirects to `https://ardrive.ar.io`
+- Type `permamail` → redirects to `https://permamail.ar.io`
 
-2. **Search Functionality**
+### 3. **Undername Support**
+Access ArNS undernames seamlessly:
+- Type `john_ardrive` → redirects to `https://john_ardrive.ar.io`
 
-   - Perform web searches directly from the TinyNav interface.
-   - Fallback to a default search engine when no bang is used.
+### 4. **Transaction ID Handling**
+Paste any Arweave transaction ID (43 characters) and it will automatically open in your configured explorer.
 
-3. **Integration with Arweave Wallet**
+### 5. **Special Commands**
+- `!tx <txid>` - Open transaction in block explorer
+- `!data <txid>` - Open raw transaction data
+- `!msg <msgid>` - Open message in ao.link
 
-   - Seamless connection with ArConnect, QuickWallet, or Arweave.app.
-   - Personalized experience based on user's Arweave identity.
+### 6. **Intelligent Autocomplete**
+As you type, Argo suggests:
+- Matching quicklinks
+- ArNS domains
+- Undernames
+- Recent searches
 
-4. **Customizable Interface**
+### 7. **Headless Mode**
+Use Argo as a search endpoint by passing `?q=query` in the URL.
 
-   - Toggle between search and bang editor views.
-   - Dark mode support for comfortable viewing.
+### 8. **Dark Mode**
+Toggle between light and dark themes for comfortable viewing.
 
-5. **Decentralized Storage**
+## Usage
 
-   - All user data and bangs stored on the Arweave permaweb.
-   - Ensures permanence and censorship-resistance of user configurations.
+1. **Direct Navigation**: Type an ArNS name like `ardrive` and press Enter
+2. **Quicklinks**: Use `!` shortcuts like `!gh search term`
+3. **Search**: Type anything else to search using your fallback search engine
+4. **Keyboard Shortcuts**: Press `/` to focus the search bar
 
-6. **Headless Mode**
-   - Support for headless redirects, allowing TinyNav to be used as a backend service.
+## Why Argo?
 
-## Future Plans
+Named after the legendary ship from Greek mythology, Argo is your vessel for navigating the Permaweb. It combines speed, simplicity, and smart suggestions to make Permaweb navigation effortless.
 
-1. **Permaweb Directory**
+## Technology
 
-   - Implement a curated collection of important permaweb resources.
-   - Categorize and tag resources for easy browsing.
-   - Allow community-driven submissions and voting.
+Built with:
+- Vue 3
+- @ar.io/sdk for ArNS resolution
+- @permaweb/aoconnect for ao integration
+- Vite for blazing fast builds
 
-2. **URL Shortening**
+## Contributing
 
-   - Add functionality to create short, memorable links for any permaweb resource.
+Contributions are welcome! Feel free to submit issues or pull requests.
 
-3. **Resource Discovery**
+## License
 
-   - Implement features to explore trending or newly added permaweb resources.
-   - Discover related content through tags and categories.
-
-4. **User Profiles**
-
-   - Allow users to save favorite resources and create personal collections.
-   - Enable contributions to a shared directory by submitting new resources.
-
-5. **Developer Tools**
-
-   - Provide API access for integrating TinyNav functionality into other dApps.
-   - Add specialized resources and shortcuts for Arweave developers.
-
-6. **Educational Resources**
-
-   - Curate lists of learning materials for Arweave and permaweb concepts.
-   - Create onboarding guides for new users to the permaweb ecosystem.
-
-7. **Enhanced Bang Navigation**
-
-   - Implement more Arweave-specific bangs (e.g., `!ardrive`, `!arql`, `!permapps`).
-   - Allow users to share their custom bangs with the community.
-
-8. **Search Result Caching**
-
-   - Implement a caching mechanism for frequently used searches to improve performance.
-
-9. **Mobile Optimization**
-
-   - Enhance the mobile user experience with responsive design improvements.
-
-10. **Internationalization**
-    - Add support for multiple languages to make TinyNav accessible to a global audience.
+MIT

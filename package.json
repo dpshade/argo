@@ -1,7 +1,7 @@
 {
-  "name": "tinynav",
+  "name": "argo",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,21 +11,9 @@
   },
   "dependencies": {
     "@ar.io/sdk": "^2.2.1",
-    "@othent/kms": "^2.0.0",
     "@permaweb/aoconnect": "^0.0.59",
-    "ar-gql": "^2.0.2",
-    "arweave": "^1.15.1",
-    "arweave-wallet-connector": "^1.0.2",
-    "arweavekit": "^1.5.1",
-    "assert": "^2.1.0",
-    "browserify-zlib": "^0.2.0",
-    "buffer": "^6.0.3",
     "lodash": "^4.17.21",
-    "quick-wallet": "^0.3.1",
-    "rollup-plugin-node-builtins": "^2.1.2",
-    "vite-plugin-node-polyfills": "^0.22.0",
-    "vue": "^3.4.37",
-    "vue-router": "4"
+    "vue": "^3.4.37"
   },
   "devDependencies": {
     "@esbuild-plugins/node-globals-polyfill": "^latest",

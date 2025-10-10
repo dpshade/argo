@@ -1,17 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { debounce } from "lodash";
-import { walletManager } from "../helpers/walletManager";
-import { defaultBangs } from "../defaults";
+import { IO } from "@ar.io/sdk";
+import { connect } from "@permaweb/aoconnect";
 
 const props = defineProps({
     customBangs: {
         type: Array,
         default: () => [],
-    },
-    isWalletConnected: {
-        type: Boolean,
-        default: false,
     },
 });
 
@@ -95,7 +91,7 @@ const filteredSuggestions = computed(() => {
         ),
     ];
 
-    const bangs = props.isWalletConnected ? props.customBangs : defaultBangs;
+    const bangs = props.customBangs;
     const customBangSuggestions = bangs.map((bang) => ({
         text: bang.name,
         description: `Search ${bang.name}`,
@@ -377,7 +373,7 @@ async function selectSuggestion(suggestion) {
 
 function handleBangSearch(bangName, searchQuery = "") {
     console.log("Handling bang search:", bangName, searchQuery);
-    const bangs = props.isWalletConnected ? props.customBangs : defaultBangs;
+    const bangs = props.customBangs;
     const bang = bangs.find((b) => b.name === bangName);
     if (bang) {
         console.log("Found matching bang:", bang);
@@ -412,7 +408,7 @@ async function pasteFromClipboard(prefix = "") {
     try {
         const clipboardText = await navigator.clipboard.readText();
         if (query.value.length === 43 || query.value.length === 44) {
-            emit("search", query.value, false, props.isWalletConnected);
+            emit("search", query.value, false);
             query.value = "";
         }
 
@@ -429,46 +425,15 @@ function exitFullScreen() {
 onMounted(async () => {
     focusInput();
     try {
-        const rawArnsDomains = await walletManager.dryRunAllArns();
-        arnsDomains.value = rawArnsDomains
-            .map((domain) => {
-                if (typeof domain === "string") {
-                    try {
-                        return JSON.parse(domain).name;
-                    } catch (e) {
-                        console.error("Error parsing domain:", domain, e);
-                        return null;
-                    }
-                } else if (
-                    domain &&
-                    typeof domain === "object" &&
-                    domain.name
-                ) {
-                    return domain.name;
-                }
-                return null;
-            })
-            .filter(Boolean);
+        // Fetch ArNS domains using @ar.io/sdk
+        const io = IO.init();
+        const records = await io.getArNSRecords({ limit: 10000 });
+        arnsDomains.value = Object.keys(records.items);
 
-        arnsProcessIds.value = rawArnsDomains.reduce((acc, domain) => {
-            if (typeof domain === "string") {
-                try {
-                    const parsedDomain = JSON.parse(domain);
-                    acc[parsedDomain.name] = parsedDomain.processId;
-                } catch (e) {
-                    console.error(
-                        "Error parsing domain for processId:",
-                        domain,
-                        e,
-                    );
-                }
-            } else if (
-                domain &&
-                typeof domain === "object" &&
-                domain.name &&
-                domain.processId
-            ) {
-                acc[domain.name] = domain.processId;
+        // Fetch process IDs for undernames
+        arnsProcessIds.value = Object.entries(records.items).reduce((acc, [name, record]) => {
+            if (record.processId) {
+                acc[name] = record.processId;
             }
             return acc;
         }, {});
@@ -504,9 +469,14 @@ watch(filteredSuggestions, async (newSuggestions) => {
         }
 
         try {
-            const records = await walletManager.getRecords(processId);
-            if (records && records.length > 0) {
-                const dataField = JSON.parse(records[0].Data);
+            const ao = connect();
+            const result = await ao.dryrun({
+                process: processId,
+                tags: [{ name: "Action", value: "Records" }],
+            });
+
+            if (result.Messages && result.Messages.length > 0) {
+                const dataField = JSON.parse(result.Messages[0].Data);
                 arnsUndernameSuggestions.value = Object.keys(dataField)
                     .filter((key) => key !== "@")
                     .map((key) => ({

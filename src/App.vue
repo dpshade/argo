@@ -1,73 +1,27 @@
 <script setup>
-import { ref, provide, nextTick, onMounted, watch, watchEffect } from "vue";
-import { walletManager } from "./helpers/walletManager";
-import { useWallet } from "./composables/useWallet";
+import { ref, nextTick, onMounted } from "vue";
 import { useSearch } from "./composables/useSearch";
-import { useBangs } from "./composables/useBangs";
 import { useAppState } from "./composables/useAppState";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
-import { debounce } from "lodash";
 import SearchBar from "./components/SearchBar.vue";
-import BangEditor from "./components/BangEditor.vue";
-import ArweaveWalletConnection from "./components/ArweaveWalletConnection.vue";
 import HeadlessRedirect from "./components/HeadlessRedirect.vue";
 import LoadingScreen from "./components/LoadingScreen.vue";
 import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
-import { defaultBangs, defaultSettings } from "./defaults";
+import { quicklinks, defaultSettings } from "./defaults";
 
 const searchBarRef = ref(null);
-const bangEditorRef = ref(null);
-const isDataLoaded = ref(false);
-const showResult = ref(false);
-const isBangEditorLoading = ref(false);
 const isLoading = ref(false);
 const loadingMessage = ref("");
-
-const {
-    isWalletConnected,
-    walletAddress,
-    processId,
-    connectWallet,
-    disconnectWallet,
-    reconnectFromCache,
-} = useWallet();
-
-const {
-    bangs,
-    fallbackSearchEngine,
-    arweaveExplorer,
-    updateFallback,
-    updateBangs,
-    updateExplorer,
-    fetchAndLoadData,
-    resetState,
-    isLoading: isBangsLoading,
-} = useBangs();
+const showResult = ref(false);
 
 const { searchResult, performSearch } = useSearch(isLoading);
 
 const {
-    currentView,
     isHeadless,
     isDarkMode,
-    showBangEditor,
     toggleDarkMode,
     handleUrlParams,
 } = useAppState();
-
-provide("isWalletConnected", isWalletConnected);
-provide("wallet", {
-    isWalletConnected,
-    walletAddress,
-    walletManager,
-    processId,
-    connectWallet,
-    disconnectWallet,
-    reconnectFromCache,
-});
-
-provide("cachedBangsData", ref(null));
-provide("isLoading", isLoading);
 
 async function handleSearch(query, forceFallback = false) {
     if (isLoading.value) return;
@@ -75,11 +29,7 @@ async function handleSearch(query, forceFallback = false) {
     isLoading.value = true;
     showResult.value = false;
     try {
-        const result = await performSearch(
-            query,
-            forceFallback,
-            isWalletConnected.value,
-        );
+        const result = await performSearch(query, forceFallback);
         searchResult.value = result;
         showResult.value = true;
 
@@ -95,7 +45,6 @@ async function handleSearch(query, forceFallback = false) {
 }
 
 function handleSearchShortcut() {
-    currentView.value = "search";
     nextTick(() => {
         if (searchBarRef.value) {
             searchBarRef.value.focusInput();
@@ -103,84 +52,10 @@ function handleSearchShortcut() {
     });
 }
 
-function handleEditorShortcut() {
-    if (isWalletConnected.value) {
-        currentView.value = "bangEditor";
-        nextTick(() => {
-            if (bangEditorRef.value) {
-                bangEditorRef.value.focusNewBangInput();
-            }
-        });
-    } else {
-        console.log("Please connect your wallet to access the bang editor");
-    }
-}
-
-useKeyboardShortcuts({ handleSearchShortcut, handleEditorShortcut });
-
-function toggleView() {
-    currentView.value =
-        currentView.value === "search" ? "bangEditor" : "search";
-    if (currentView.value === "bangEditor") {
-        isBangEditorLoading.value = true;
-    }
-    nextTick(() => {
-        if (currentView.value === "search" && searchBarRef.value) {
-            searchBarRef.value.focusInput();
-        } else if (currentView.value === "bangEditor" && bangEditorRef.value) {
-            bangEditorRef.value.focusNewBangInput();
-        }
-    });
-}
-
-async function onWalletConnected(method, address) {
-    console.log("Wallet connected:", address, "with method:", method);
-    isLoading.value = true;
-    try {
-        await fetchAndLoadData();
-        if (searchBarRef.value) {
-            searchBarRef.value.focusInput();
-        }
-    } catch (error) {
-        console.error("Error during wallet connection:", error);
-    } finally {
-        isLoading.value = false;
-    }
-}
-
-async function onWalletDisconnected() {
-    console.log("Wallet disconnected");
-    isLoading.value = true;
-    try {
-        await disconnectWallet();
-        resetState();
-        isDataLoaded.value = false;
-    } finally {
-        isLoading.value = false;
-    }
-}
-
-const debouncedFetchAndLoadData = debounce(async () => {
-    if (!isDataLoaded.value && isWalletConnected.value && processId.value) {
-        console.log("Fetching and loading data...");
-        isLoading.value = true;
-        try {
-            await fetchAndLoadData();
-            isDataLoaded.value = true;
-        } finally {
-            isLoading.value = false;
-        }
-    }
-}, 300);
+useKeyboardShortcuts({ handleSearchShortcut });
 
 onMounted(async () => {
     await handleUrlParams();
-});
-
-watch(isWalletConnected, (newValue) => {
-    if (!newValue) {
-        isDataLoaded.value = false;
-    }
 });
 </script>
 
@@ -234,23 +109,12 @@ watch(isWalletConnected, (newValue) => {
             </svg>
         </button>
         <div class="container" :class="{ 'dark-mode': isDarkMode }">
-            <div class="top-right">
-                <button @click="toggleView" v-if="isWalletConnected">
-                    {{ currentView === "search" ? "Edit Bangs" : "Search" }}
-                </button>
-                <ArweaveWalletConnection
-                    @walletConnected="onWalletConnected"
-                    @walletDisconnected="onWalletDisconnected"
-                />
-            </div>
-            <div class="search-section" v-show="currentView === 'search'">
-                <h1 class="title">tinyNav</h1>
+            <div class="search-section">
+                <h1 class="title">Argo</h1>
                 <SearchBar
-                    v-if="currentView === 'search'"
                     ref="searchBarRef"
                     @search="handleSearch"
-                    :customBangs="isWalletConnected ? bangs : defaultBangs"
-                    :isWalletConnected="isWalletConnected"
+                    :customBangs="quicklinks"
                 />
                 <a
                     v-show="showResult"
@@ -263,21 +127,6 @@ watch(isWalletConnected, (newValue) => {
                 >
                     {{ searchResult }}
                 </a>
-            </div>
-            <div class="bang-editor-wrapper" v-if="showBangEditor">
-                <BangEditor
-                    ref="bangEditorRef"
-                    :bangs="bangs"
-                    :fallbackSearchEngine="fallbackSearchEngine"
-                    :arweaveExplorer="arweaveExplorer"
-                    :walletManager="walletManager"
-                    @update:bangs="updateBangs"
-                    @update:fallbackSearchEngine="updateFallback"
-                    @update:arweaveExplorer="updateExplorer"
-                    @force-update="() => fetchAndLoadData(true)"
-                    @loading-complete="isBangEditorLoading = false"
-                    :isLoading="isBangEditorLoading"
-                />
             </div>
         </div>
         <KeyboardShortcuts />
@@ -353,23 +202,6 @@ body {
     position: relative;
     width: 100%;
     box-sizing: border-box;
-}
-
-.bang-editor-wrapper {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    width: 100%;
-}
-
-.top-right {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
 }
 
 .search-section {
@@ -511,10 +343,6 @@ button:hover {
         justify-content: center;
     }
 
-    .bang-editor-wrapper {
-        align-items: flex-start;
-    }
-
     .hide-on-mobile {
         display: none;
     }
@@ -522,19 +350,6 @@ button:hover {
     h1 {
         font-size: 1.8rem;
         margin-bottom: 15px;
-    }
-
-    .top-right {
-        right: 10px;
-        justify-content: end;
-        margin-bottom: 15px;
-        flex-wrap: wrap;
-        z-index: 500;
-    }
-
-    .toggle-button {
-        margin: 5px;
-        flex-grow: 1;
     }
 
     .dark-mode-toggle {
