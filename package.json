@@ -27,7 +27,8 @@
     "stream-browserify": "^3.0.0",
     "terser": "^5.33.0",
     "util": "^0.12.5",
-    "vite": "^latest"
+    "vite": "^latest",
+    "vite-plugin-node-polyfills": "^0.24.0"
   },
   "trustedDependencies": [
     "protobufjs"

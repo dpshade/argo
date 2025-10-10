@@ -73,7 +73,7 @@ export default defineConfig(({ command, mode }) => {
             },
           }
         : undefined,
-      target: "es2015",
+      target: "es2020",
       reportCompressedSize: false,
       rollupOptions: {
         output: {

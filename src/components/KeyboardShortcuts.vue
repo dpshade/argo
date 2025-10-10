@@ -5,17 +5,13 @@
             :class="{ 'show-shortcuts': showShortcuts }"
         >
             <span class="shortcut">
-                Search <kbd>{{ modifierKey }}</kbd> + <kbd>K</kbd>
+                Search <kbd>{{ modifierKey }}</kbd> + <kbd>K</kbd> or <kbd>/</kbd>
             </span>
             <span class="shortcut">
                 Edit Bangs <kbd>{{ modifierKey }}</kbd> + <kbd>E</kbd>
             </span>
             <span class="shortcut">
                 Normal Search <kbd>Esc</kbd> <kbd>Enter</kbd>
-            </span>
-            <span class="shortcut default-engine">
-                Set as default search engine:
-                <strong>nav_tiny4vr.ar.io?q=%s</strong>
             </span>
         </div>
         <div

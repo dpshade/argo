@@ -42,12 +42,11 @@ const docsSuggestions = ref([]);
 const showGlossaryModal = ref(false);
 const selectedGlossaryTerm = ref(null);
 
-// Search modes
-const searchMode = ref("all");
+// Search modes - now supports multi-select
+const selectedFilters = ref(new Set(["all"]));
 const showModeModal = ref(false);
 const searchModes = [
     { id: "all", label: "All" },
-    { id: "arweave", label: "Arweave" },
     { id: "arns", label: "ArNS" },
     { id: "docs", label: "Docs" },
     { id: "glossary", label: "Glossary" },
@@ -57,9 +56,30 @@ function toggleModeModal() {
     showModeModal.value = !showModeModal.value;
 }
 
-function selectMode(modeId) {
-    searchMode.value = modeId;
-    showModeModal.value = false;
+function toggleFilter(filterId) {
+    const newFilters = new Set(selectedFilters.value);
+
+    if (filterId === "all") {
+        // Selecting "All" clears all other filters
+        selectedFilters.value = new Set(["all"]);
+    } else {
+        // Remove "all" if it's selected
+        newFilters.delete("all");
+
+        // Toggle the filter
+        if (newFilters.has(filterId)) {
+            newFilters.delete(filterId);
+        } else {
+            newFilters.add(filterId);
+        }
+
+        // If no filters selected, default back to "all"
+        if (newFilters.size === 0) {
+            newFilters.add("all");
+        }
+
+        selectedFilters.value = newFilters;
+    }
 }
 
 const formatUrl = (url, maxLength = 30) => {
@@ -218,34 +238,55 @@ const filteredSuggestions = computed(() => {
 const suggestions = computed(() => {
     let filtered = filteredSuggestions.value;
 
-    // Filter by search mode
-    if (searchMode.value !== "all") {
+    // Filter by selected filters (multi-select)
+    if (!selectedFilters.value.has("all")) {
         filtered = filtered.filter((suggestion) => {
-            switch (searchMode.value) {
-                case "arweave":
-                    return ["tx", "txData", "rawTx", "shortcut"].includes(
-                        suggestion.type,
-                    );
-                case "arns":
-                    return suggestion.type === "arns"; // Only ArNS, no undernames inline
-                case "docs":
-                    return suggestion.type === "docs";
-                case "glossary":
-                    return suggestion.type === "glossary";
-                default:
+            // Check if suggestion type matches any selected filter
+            if (selectedFilters.value.has("arns")) {
+                if (suggestion.type === "arns") {
                     return true;
+                }
             }
+            if (selectedFilters.value.has("docs")) {
+                if (suggestion.type === "docs") {
+                    return true;
+                }
+            }
+            if (selectedFilters.value.has("glossary")) {
+                if (suggestion.type === "glossary") {
+                    return true;
+                }
+            }
+            return false;
         });
     }
 
-    // Return filtered suggestions WITHOUT undernames - they'll be shown in separate panel
+    // On mobile, insert ALL undernames inline after their parent ArNS automatically
+    if (isMobile.value) {
+        const result = [];
+        // Explicitly access undernameDataCache.value to ensure reactive dependency tracking
+        const cacheSnapshot = undernameDataCache.value;
+        for (const suggestion of filtered) {
+            result.push(suggestion);
+            // If this is an ArNS with cached undernames, insert them inline
+            if (suggestion.type === "arns") {
+                const arnsName = suggestion.text;
+                const cachedUndernames = cacheSnapshot[arnsName];
+                if (cachedUndernames && cachedUndernames.length > 0) {
+                    result.push(...cachedUndernames);
+                }
+            }
+        }
+        return result;
+    }
+
+    // Desktop: return filtered suggestions WITHOUT undernames - they'll be shown in separate panel
     return filtered;
 });
 
 const handleSuggestionAction = {
     arns: (text) => {
         window.open(`https://${text}.${optimalGateway.value}`, "_blank");
-        query.value = "";
         showSuggestions.value = false;
     },
     arns_undername: (text) => {
@@ -253,7 +294,6 @@ const handleSuggestionAction = {
         const url = `https://${undername}_${domain}.${optimalGateway.value}`;
         console.log("Opening ArNS undername URL:", url);
         window.open(url, "_blank");
-        query.value = "";
         showSuggestions.value = false;
     },
     shortcut: (suggestion) => {
@@ -261,7 +301,6 @@ const handleSuggestionAction = {
         if (url) {
             console.log(`Opening shortcut:`, url);
             window.open(url, "_blank");
-            query.value = "";
             showSuggestions.value = false;
         }
     },
@@ -270,7 +309,6 @@ const handleSuggestionAction = {
         if (url) {
             console.log(`Opening docs:`, url);
             window.open(url, "_blank");
-            query.value = "";
             showSuggestions.value = false;
         }
     },
@@ -278,7 +316,6 @@ const handleSuggestionAction = {
         console.log("Opening glossary term:", suggestion.termData);
         selectedGlossaryTerm.value = suggestion.termData;
         showGlossaryModal.value = true;
-        query.value = "";
         showSuggestions.value = false;
     },
 };
@@ -308,7 +345,6 @@ async function onSubmit(event) {
     // Otherwise pass to parent search handler
     emit("search", trimmedQuery);
 
-    query.value = "";
     showSuggestions.value = false;
     exitFullScreen();
 }
@@ -327,8 +363,14 @@ async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
     const processId = arnsProcessIds.value[arnsName];
     if (!processId) {
         console.warn(`No process ID found for ArNS: ${arnsName}`);
-        undernameCountCache.value[arnsName] = 0;
-        undernameDataCache.value[arnsName] = [];
+        undernameCountCache.value = {
+            ...undernameCountCache.value,
+            [arnsName]: 0,
+        };
+        undernameDataCache.value = {
+            ...undernameDataCache.value,
+            [arnsName]: [],
+        };
         return;
     }
 
@@ -351,8 +393,15 @@ async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
                 }));
 
             // Cache both count and data
-            undernameCountCache.value[arnsName] = undernames.length;
-            undernameDataCache.value[arnsName] = undernames;
+            // Create new object reference to trigger Vue reactivity
+            undernameCountCache.value = {
+                ...undernameCountCache.value,
+                [arnsName]: undernames.length,
+            };
+            undernameDataCache.value = {
+                ...undernameDataCache.value,
+                [arnsName]: undernames,
+            };
 
             // Only display if requested (e.g., from right arrow or hover)
             if (shouldDisplay && undernames.length > 0) {
@@ -364,19 +413,25 @@ async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
             }
         } else {
             // Cache 0 count and empty array if no undernames found
-            undernameCountCache.value[arnsName] = 0;
-            undernameDataCache.value[arnsName] = [];
+            undernameCountCache.value = {
+                ...undernameCountCache.value,
+                [arnsName]: 0,
+            };
+            undernameDataCache.value = {
+                ...undernameDataCache.value,
+                [arnsName]: [],
+            };
         }
     } catch (error) {
         console.error(`Error fetching undernames for ${arnsName}:`, error);
-        undernameCountCache.value[arnsName] = 0;
-        undernameDataCache.value[arnsName] = [];
+        // Don't cache failed fetches - allow retries later
+        // Only log the error but don't mark as "no undernames"
     }
 }
 
 async function fetchAllUndernamesForArnsResults(arnsSuggestions) {
     // Fetch undernames for all ArNS in the results (in background)
-    const fetchPromises = arnsSuggestions.map(suggestion => {
+    const fetchPromises = arnsSuggestions.map((suggestion) => {
         const arnsName = suggestion.text;
         // Skip if already cached
         if (undernameCountCache.value[arnsName] !== undefined) {
@@ -394,7 +449,11 @@ function onKeyDown(event) {
         event.preventDefault();
         const currentSuggestion = suggestions.value[hoveredIndex.value];
 
-        if (currentSuggestion && currentSuggestion.type === "arns" && arnsUndernameSuggestions.value.length > 0) {
+        if (
+            currentSuggestion &&
+            currentSuggestion.type === "arns" &&
+            arnsUndernameSuggestions.value.length > 0
+        ) {
             activePanel.value = "main";
             displayedUnderamesForArns.value = null;
         }
@@ -416,7 +475,10 @@ function onKeyDown(event) {
             }
 
             // If we have cached undernames for this ArNS, reopen panel instantly
-            if (lastFetchedArnsName.value === arnsName && arnsUndernameSuggestions.value.length > 0) {
+            if (
+                lastFetchedArnsName.value === arnsName &&
+                arnsUndernameSuggestions.value.length > 0
+            ) {
                 activePanel.value = "undernames";
                 undernameHoveredIndex.value = 0;
                 displayedUnderamesForArns.value = arnsName;
@@ -446,7 +508,7 @@ function onKeyDown(event) {
                 // Move to next item in main suggestions
                 lastKeyboardHoveredIndex.value = Math.min(
                     hoveredIndex.value + 1,
-                    suggestions.value.length - 1
+                    suggestions.value.length - 1,
                 );
                 hoveredIndex.value = lastKeyboardHoveredIndex.value;
             } else if (newIndex < 0) {
@@ -454,7 +516,10 @@ function onKeyDown(event) {
                 activePanel.value = "main";
                 undernameHoveredIndex.value = 0;
                 // Move up one item in main suggestions
-                lastKeyboardHoveredIndex.value = Math.max(hoveredIndex.value - 1, 0);
+                lastKeyboardHoveredIndex.value = Math.max(
+                    hoveredIndex.value - 1,
+                    0,
+                );
                 hoveredIndex.value = lastKeyboardHoveredIndex.value;
             } else {
                 // Normal navigation within undernames
@@ -474,9 +539,13 @@ function onKeyDown(event) {
         scrollSuggestionIntoView();
     } else if (event.key === "Enter" && hoveredIndex.value !== -1) {
         event.preventDefault();
-        if (activePanel.value === "undernames" && arnsUndernameSuggestions.value[undernameHoveredIndex.value]) {
+        if (
+            activePanel.value === "undernames" &&
+            arnsUndernameSuggestions.value[undernameHoveredIndex.value]
+        ) {
             // Open the selected undername
-            const undername = arnsUndernameSuggestions.value[undernameHoveredIndex.value];
+            const undername =
+                arnsUndernameSuggestions.value[undernameHoveredIndex.value];
             window.open(undername.url, "_blank");
         } else {
             onSubmit(event);
@@ -492,7 +561,8 @@ function scrollSuggestionIntoView() {
     nextTick(() => {
         if (activePanel.value === "undernames") {
             // Scroll undernames panel
-            const undernameElements = document.querySelectorAll(".undername-item");
+            const undernameElements =
+                document.querySelectorAll(".undername-item");
             if (undernameElements[undernameHoveredIndex.value]) {
                 undernameElements[undernameHoveredIndex.value].scrollIntoView({
                     behavior: "smooth",
@@ -501,6 +571,8 @@ function scrollSuggestionIntoView() {
             }
         } else {
             // Scroll main suggestions panel
+            if (!suggestionsRef.value) return;
+
             const suggestionElements =
                 suggestionsRef.value.querySelectorAll(".suggestion");
             if (suggestionElements[isMobile.value ? 0 : hoveredIndex.value]) {
@@ -553,6 +625,7 @@ async function selectSuggestion(suggestion) {
     console.log("Selecting suggestion:", suggestion);
     const { type } = suggestion;
 
+    // On mobile, all undernames are shown inline automatically, so just use default actions
     const action = handleSuggestionAction[type];
     if (action) {
         // Pass the full suggestion object for shortcuts, docs, and glossary, just text for others
@@ -579,7 +652,6 @@ function handleBangSearch(bangName, searchQuery = "") {
             );
             console.log("Opening URL:", url);
             window.open(url, "_blank");
-            query.value = "";
             showSuggestions.value = false;
         } else {
             console.log("Setting bang in input");
@@ -590,7 +662,6 @@ function handleBangSearch(bangName, searchQuery = "") {
         const url = `https://arweave.net/raw/${searchQuery}`;
         console.log("Opening URL:", url);
         window.open(url, "_blank");
-        query.value = "";
         showSuggestions.value = false;
     } else {
         console.log("No matching bang found for:", bangName);
@@ -602,7 +673,6 @@ async function pasteFromClipboard(prefix = "") {
         const clipboardText = await navigator.clipboard.readText();
         if (query.value.length === 43 || query.value.length === 44) {
             emit("search", query.value, false);
-            query.value = "";
         }
 
         query.value = prefix + clipboardText.trim();
@@ -776,7 +846,7 @@ watch(
 // Watch for suggestions changes and fetch undernames for all ArNS results in background
 watch(suggestions, (newSuggestions) => {
     // Filter to only ArNS suggestions
-    const arnsSuggestions = newSuggestions.filter(s => s.type === "arns");
+    const arnsSuggestions = newSuggestions.filter((s) => s.type === "arns");
 
     if (arnsSuggestions.length > 0) {
         // Fetch undernames for all ArNS results in the background (non-blocking)
@@ -784,8 +854,11 @@ watch(suggestions, (newSuggestions) => {
     }
 });
 
-// Watch for hovering over ArNS with cached undernames - instantly expand panel
+// Watch for hovering over ArNS with cached undernames - instantly expand panel (desktop only)
 watch(hoveredIndex, (newIndex) => {
+    // Skip on mobile - undernames are shown inline automatically
+    if (isMobile.value) return;
+
     const currentSuggestion = suggestions.value[newIndex];
 
     if (currentSuggestion && currentSuggestion.type === "arns") {
@@ -810,20 +883,27 @@ watch(hoveredIndex, (newIndex) => {
     }
 });
 
-// Watch for cache updates - if currently hovered item gets undernames, expand panel
-watch(undernameCountCache, (newCache) => {
-    const currentSuggestion = suggestions.value[hoveredIndex.value];
+// Watch for cache updates - if currently hovered item gets undernames, expand panel (desktop only)
+watch(
+    undernameCountCache,
+    (newCache) => {
+        // Skip on mobile - undernames are shown inline automatically
+        if (isMobile.value) return;
 
-    if (currentSuggestion && currentSuggestion.type === "arns") {
-        const arnsName = currentSuggestion.text;
-        const count = newCache[arnsName];
+        const currentSuggestion = suggestions.value[hoveredIndex.value];
 
-        // If we just got undernames for the currently hovered ArNS, expand panel
-        if (count > 0 && displayedUnderamesForArns.value !== arnsName) {
-            fetchUndernamesForArns(arnsName, true);
+        if (currentSuggestion && currentSuggestion.type === "arns") {
+            const arnsName = currentSuggestion.text;
+            const count = newCache[arnsName];
+
+            // If we just got undernames for the currently hovered ArNS, expand panel
+            if (count > 0 && displayedUnderamesForArns.value !== arnsName) {
+                fetchUndernamesForArns(arnsName, true);
+            }
         }
-    }
-}, { deep: true });
+    },
+    { deep: true },
+);
 
 defineExpose({ focusInput });
 </script>
@@ -863,7 +943,9 @@ defineExpose({ focusInput });
                 type="button"
                 class="filter-button"
                 @click="toggleModeModal"
-                :class="{ active: searchMode !== 'all' || showModeModal }"
+                :class="{
+                    active: !selectedFilters.has('all') || showModeModal,
+                }"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -886,7 +968,7 @@ defineExpose({ focusInput });
                 ref="searchInput"
                 type="text"
                 v-model="query"
-                placeholder="Search, bang, or ArNS domain..."
+                placeholder="Search the Permaweb..."
                 required
                 @focus="debouncedOnInputFocus"
                 @touchstart="onInputTouchStart"
@@ -942,22 +1024,27 @@ defineExpose({ focusInput });
                     :key="mode.id"
                     type="button"
                     class="mode-option"
-                    :class="{ active: searchMode === mode.id }"
-                    @click="selectMode(mode.id)"
+                    :class="{ selected: selectedFilters.has(mode.id) }"
+                    @click="toggleFilter(mode.id)"
                 >
-                    {{ mode.label }}
-                    <svg
-                        v-if="searchMode === mode.id"
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="3"
-                        width="16"
-                        height="16"
+                    <span class="mode-label">{{ mode.label }}</span>
+                    <span
+                        class="checkbox"
+                        :class="{ checked: selectedFilters.has(mode.id) }"
                     >
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
+                        <svg
+                            v-if="selectedFilters.has(mode.id)"
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="3"
+                            width="14"
+                            height="14"
+                        >
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </span>
                 </button>
             </div>
         </div>
@@ -967,7 +1054,9 @@ defineExpose({ focusInput });
             class="suggestions-wrapper"
             :class="{
                 visible: showSuggestions && suggestions.length > 0,
-                'has-undernames': arnsUndernameSuggestions.length > 0 && displayedUnderamesForArns
+                'has-undernames':
+                    arnsUndernameSuggestions.length > 0 &&
+                    displayedUnderamesForArns,
             }"
         >
             <div class="suggestions" ref="suggestionsRef">
@@ -976,18 +1065,18 @@ defineExpose({ focusInput });
                     :key="index"
                     class="suggestion"
                     :class="{
-                        hovered: index === hoveredIndex,
+                        hovered: !isMobile && index === hoveredIndex,
                         'is-shortcut': suggestion.type === 'shortcut',
                     }"
                     @mousedown="selectSuggestion(suggestion)"
                     @mousemove="
-                        if (!isKeyboardNavigating) {
+                        if (!isMobile && !isKeyboardNavigating) {
                             hoveredIndex = index;
                             isMouseHovering = true;
                         }
                     "
                     @mouseleave="
-                        if (!isKeyboardNavigating) {
+                        if (!isMobile && !isKeyboardNavigating) {
                             isMouseHovering = false;
                             hoveredIndex = lastKeyboardHoveredIndex;
                         }
@@ -1005,7 +1094,8 @@ defineExpose({ focusInput });
                                 <div
                                     v-if="
                                         suggestion.type === 'arns' &&
-                                        undernameCountCache[suggestion.text] === undefined
+                                        undernameCountCache[suggestion.text] ===
+                                            undefined
                                     "
                                     class="loading-dots"
                                 >
@@ -1032,7 +1122,9 @@ defineExpose({ focusInput });
                                         width="12"
                                         height="12"
                                     >
-                                        <polyline points="9 18 15 12 9 6"></polyline>
+                                        <polyline
+                                            points="9 18 15 12 9 6"
+                                        ></polyline>
                                     </svg>
                                 </div>
                             </div>
@@ -1074,17 +1166,25 @@ defineExpose({ focusInput });
 
             <!-- Undernames Panel -->
             <div
-                v-if="arnsUndernameSuggestions.length > 0 && displayedUnderamesForArns"
+                v-if="
+                    arnsUndernameSuggestions.length > 0 &&
+                    displayedUnderamesForArns
+                "
                 class="undernames-panel"
             >
                 <div class="undernames-header">
-                    Undernames for <strong>{{ displayedUnderamesForArns }}</strong>
+                    Undernames for
+                    <strong>{{ displayedUnderamesForArns }}</strong>
                 </div>
                 <div
                     v-for="(undername, index) in arnsUndernameSuggestions"
                     :key="index"
                     class="undername-item"
-                    :class="{ hovered: activePanel === 'undernames' && undernameHoveredIndex === index }"
+                    :class="{
+                        hovered:
+                            activePanel === 'undernames' &&
+                            undernameHoveredIndex === index,
+                    }"
                     @mousedown="window.open(undername.url, '_blank')"
                 >
                     <strong>{{ undername.text }}</strong>
@@ -1323,7 +1423,7 @@ button:hover {
 .filter-button.active {
     background-color: var(--input-bg);
     color: var(--text-color);
-    border-radius: 0;
+    border-radius: 5px 0 0 0;
 }
 
 .input-wrapper:has(~ .suggestions-wrapper.visible) .filter-button {
@@ -1349,14 +1449,15 @@ button:hover {
     position: absolute;
     top: 100%;
     left: 0;
-    background-color: var(--input-bg);
-    border-radius: 0 0 12px 12px;
-    padding: 16px;
+    background-color: var(--container-bg);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 12px;
     min-width: 220px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    animation: popupSlideIn 0.2s ease-out;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    animation: popupSlideIn 0.15s ease-out;
     z-index: 1000;
-    border: none;
 }
 
 @keyframes popupSlideIn {
@@ -1374,13 +1475,13 @@ button:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.75rem;
     color: var(--text-color);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    opacity: 0.8;
+    opacity: 0.6;
 }
 
 .close-button {
@@ -1412,29 +1513,46 @@ button:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 12px;
+    padding: 8px 10px;
     background-color: transparent;
     border: none;
-    border-radius: 6px;
+    border-radius: 5px;
     cursor: pointer;
     transition: all 0.15s ease;
-    font-size: 0.9rem;
-    font-weight: 500;
+    font-size: 0.875rem;
+    font-weight: 400;
     color: var(--text-color);
     text-align: left;
+    width: 100%;
 }
 
 .mode-option:hover {
     background-color: var(--input-bg);
 }
 
-.mode-option.active {
-    background-color: var(--button-bg);
-    color: white;
+.mode-label {
+    flex: 1;
 }
 
-.mode-option svg {
+.checkbox {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-color);
+    border-radius: 4px;
     flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.checkbox.checked {
+    background-color: var(--button-bg);
+    border-color: var(--button-bg);
+}
+
+.checkbox svg {
+    color: white;
 }
 
 /* Suggestions styles */
@@ -1872,9 +1990,29 @@ button:hover {
         flex-direction: row;
     }
 
+    /* Reorder filter button to the right on mobile */
+    .filter-button {
+        order: 3;
+        border-radius: 0 5px 5px 0 !important;
+    }
+
+    .filter-button.active {
+        border-radius: 0 5px 0 0 !important;
+    }
+
     input {
+        order: 2;
         font-size: 16px;
         padding: 12px 16px;
+        border-radius: 5px 0 0 5px !important;
+    }
+
+    .back-button {
+        order: 1;
+    }
+
+    .input-wrapper:has(.filter-button.active) input {
+        border-radius: 5px 0 0 0 !important;
     }
 
     .full-screen input.with-suggestions {
@@ -1894,6 +2032,98 @@ button:hover {
         position: static;
         border-radius: 0 0 5px 5px;
         border-top: none;
+    }
+
+    /* Hide undernames panel on mobile - show inline instead */
+    .undernames-panel {
+        display: none !important;
+    }
+
+    /* Ensure suggestions maintain full width on mobile - no split layout */
+    .suggestions-wrapper.has-undernames {
+        display: block !important;
+    }
+
+    .suggestions-wrapper.has-undernames .suggestions {
+        width: 100% !important;
+        border-radius: 0 0 5px 5px !important;
+        box-sizing: border-box !important;
+    }
+
+    .suggestions-wrapper.has-undernames .suggestion-main {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    .suggestions-wrapper.has-undernames .suggestion {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .suggestions-wrapper.has-undernames .suggestion-text-wrapper {
+        overflow: visible !important;
+    }
+
+    .suggestions-wrapper.has-undernames .suggestion-title-row strong {
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+    }
+
+    .suggestions-wrapper.has-undernames .suggestion-description {
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+    }
+
+    /* Remove hover/select styling on mobile */
+    .suggestion.hovered,
+    .suggestion:hover {
+        background-color: transparent !important;
+        color: var(--text-color) !important;
+    }
+
+    /* Style undernames like regular suggestions on mobile */
+    .undername-item {
+        padding: 15px !important;
+        background-color: transparent !important;
+        border: none !important;
+        cursor: pointer !important;
+    }
+
+    .undername-item.hovered,
+    .undername-item:hover {
+        background-color: transparent !important;
+        color: var(--text-color) !important;
+    }
+
+    .undername-item strong {
+        color: var(--text-color) !important;
+        font-size: 1.2rem !important;
+    }
+
+    /* Remove external arrow on mobile */
+    .external-arrow {
+        display: none !important;
+    }
+
+    /* Ensure undernames count and loading dots stay visible */
+    .undernames-count {
+        opacity: 0.6 !important;
+        background-color: rgba(0, 0, 0, 0.1) !important;
+    }
+
+    /* Remove hover effects on result tags */
+    .result-tag {
+        opacity: 1 !important;
+    }
+
+    .suggestion.hovered .result-tag,
+    .suggestion:hover .result-tag {
+        opacity: 1 !important;
     }
 }
 
