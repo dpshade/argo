@@ -4,15 +4,14 @@
 
 ## Features
 
-### 1. **Filter Modes**
-Focus your search with dedicated filter modes:
+### 1. **Multi-Select Filters**
+Focus your search with flexible multi-select filters:
 - **All** - Show all available suggestions
-- **Arweave** - Filter for transaction commands (tx, raw data, block explorer)
-- **ArNS** - Filter for ArNS domains and undernames only
+- **ArNS** - Filter for ArNS domains and undernames
 - **Docs** - Quick access to documentation resources
 - **Glossary** - Navigate Permaweb terminology and concepts
 
-Click the filter icon on the left of the search bar to select your mode.
+Click the filter icon to select multiple filters simultaneously, or choose "All" to see everything. Filters work together to show exactly what you need.
 
 ### 2. **Quicklinks**
 Fast navigation using shortcut syntax:
@@ -32,6 +31,8 @@ Navigate directly to ArNS names with intelligent autocomplete:
 Access ArNS undernames seamlessly:
 - Type `john_ardrive` → redirects to `https://john_ardrive.ar.io`
 - Dynamic undername discovery using AO process queries
+- **Mobile**: Undernames display automatically inline beneath their parent ArNS domain
+- **Desktop**: Undernames appear in a dedicated side panel when hovering over ArNS domains
 
 ### 5. **Transaction Commands**
 Specialized commands for Arweave transaction handling:
@@ -55,12 +56,15 @@ Built-in theme toggle for comfortable viewing in any lighting condition.
 
 ## Usage
 
-1. **Filter Selection**: Click the filter icon to choose your search mode (All, Arweave, ArNS, Docs, Glossary)
+1. **Filter Selection**: Click the filter icon to select one or more filters (ArNS, Docs, Glossary) or choose "All"
 2. **Direct Navigation**: Type an ArNS name like `ardrive` and press Enter
 3. **Quicklinks**: Type shortcuts like `gh search term` or `yt video topic`
 4. **Transaction Lookup**: Type `tx`, `!tx`, or `!raw` then paste a transaction ID
-5. **Search**: Type anything else to search using your fallback search engine
-6. **Keyboard Navigation**: Use arrow keys to navigate suggestions, Enter to select
+5. **Undername Access**:
+   - **Mobile**: Scroll through undernames shown inline beneath ArNS domains
+   - **Desktop**: Use arrow keys (← →) to navigate between main suggestions and undername panel
+6. **Search**: Type anything else to search using your fallback search engine
+7. **Keyboard Navigation**: Use arrow keys to navigate suggestions, Enter to select
 
 ## Why Argo?
 
