@@ -1,9 +1,15 @@
-import { ARIO } from "@ar.io/sdk/web";
 import { cacheModule } from "./cacheModule";
 import { buildGatewayUrl } from "./gatewayService";
 
-// Initialize ARIO for mainnet (SDK v3.21.0)
-const ario = ARIO.mainnet();
+// Lazy load ARIO SDK to reduce initial bundle size
+let ario = null;
+const getARIO = async () => {
+  if (!ario) {
+    const { ARIO } = await import("@ar.io/sdk/web");
+    ario = ARIO.mainnet();
+  }
+  return ario;
+};
 
 const checkAccess = async (link) => {
   const cachedStatus = cacheModule.get(`accessStatus_${link}`, "arns");
@@ -37,7 +43,8 @@ export const checkArNSRecord = async (domain) => {
   }
 
   try {
-    const record = await ario.getArNSRecord({ name: domain });
+    const arioInstance = await getARIO();
+    const record = await arioInstance.getArNSRecord({ name: domain });
     const exists = record !== null;
 
     cacheModule.set(`arnsRecord_${domain}`, exists, "arns");
@@ -60,7 +67,8 @@ const fetchAllGateways = async () => {
     let nextCursor = null;
 
     do {
-      const gatewaysData = await ario.getGateways({ cursor: nextCursor });
+      const arioInstance = await getARIO();
+      const gatewaysData = await arioInstance.getGateways({ cursor: nextCursor });
       console.log("Fetched gateways data:", gatewaysData);
 
       if (gatewaysData && Array.isArray(gatewaysData.items)) {

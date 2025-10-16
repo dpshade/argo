@@ -1,9 +1,18 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { debounce } from "lodash";
-import { ARIO } from "@ar.io/sdk/web";
 import { connect } from "@permaweb/aoconnect";
 import { getOptimalGatewayHostname } from "../helpers/gatewayService";
+
+// Lazy load ARIO SDK
+let ario = null;
+const getARIO = async () => {
+  if (!ario) {
+    const { ARIO } = await import("@ar.io/sdk/web");
+    ario = ARIO.mainnet();
+  }
+  return ario;
+};
 import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";
 

@@ -34,6 +34,7 @@ jobs:
             --sig-type arweave \
             --ario-process mainnet \
             --on-demand ario \
-            --max-token-amount 2.0
+            --max-token-amount 3.0 \
+            --timeout 300000
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}

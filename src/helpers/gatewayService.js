@@ -6,7 +6,16 @@ import {
   FastestPingRoutingStrategy,
   NetworkGatewaysProvider,
 } from "@ar.io/wayfinder-core";
-import { ARIO } from "@ar.io/sdk/web";
+
+// Lazy load ARIO SDK
+let ario = null;
+const getARIO = async () => {
+  if (!ario) {
+    const { ARIO } = await import("@ar.io/sdk/web");
+    ario = ARIO.mainnet();
+  }
+  return ario;
+};
 
 // State management
 let optimalGatewayHostname = "arweave.net"; // Default fallback
@@ -38,7 +47,7 @@ async function initializeGateway() {
       console.log("Initializing Wayfinder for optimal gateway selection...");
 
       // Initialize ARIO for accessing AR.IO Network gateway data
-      const ario = ARIO.mainnet();
+      const ario = await getARIO();
 
       // Get all gateways from the AR.IO Network
       const gatewaysProvider = new NetworkGatewaysProvider({ ario });

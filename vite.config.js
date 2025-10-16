@@ -70,6 +70,11 @@ export default defineConfig(({ command, mode }) => {
             compress: {
               drop_console: true,
               drop_debugger: true,
+              pure_funcs: ['console.log', 'console.info', 'console.debug', 'console.warn'],
+            },
+            mangle: true,
+            format: {
+              comments: false,
             },
           }
         : undefined,
@@ -78,14 +83,19 @@ export default defineConfig(({ command, mode }) => {
       rollupOptions: {
         output: {
           entryFileNames: `assets/main.js`,
-          chunkFileNames: `assets/main.js`,
+          chunkFileNames: `assets/[name]-[hash].js`,
           assetFileNames: (assetInfo) => {
             if (assetInfo.name === "style.css") return "assets/main.css";
             return `assets/${assetInfo.name}`;
           },
-          manualChunks: undefined,
+          manualChunks: {
+            'aoconnect': ['@permaweb/aoconnect'],
+            'vue-vendor': ['vue'],
+            'lodash': ['lodash']
+          },
         },
       },
+      chunkSizeWarningLimit: 1000,
       cssCodeSplit: false,
     },
     esbuild: {
