@@ -38,8 +38,7 @@ export default defineConfig(({ command, mode }) => {
       __VUE_OPTIONS_API__: false,
       __VUE_PROD_DEVTOOLS__: false,
     },
-    // Externalize the large SDK bundle
-    external: ['@ar.io/sdk/bundles/web.bundle.min.js'],
+
     resolve: {
       alias: {
         stream: "stream-browserify",
@@ -92,13 +91,15 @@ export default defineConfig(({ command, mode }) => {
           },
           manualChunks: {
             'aoconnect': ['@permaweb/aoconnect'],
+            'ar-io-sdk': ['@ar.io/sdk', '@ar.io/wayfinder-core'],
             'vue-vendor': ['vue'],
-            'lodash': ['lodash']
+            'lodash': ['lodash'],
+            'polyfills': ['crypto-browserify', 'stream-browserify', 'process', 'util', 'os-browserify']
           },
         },
       },
 
-      chunkSizeWarningLimit: 1000,
+      chunkSizeWarningLimit: 2000,
       cssCodeSplit: false,
     },
     esbuild: {
