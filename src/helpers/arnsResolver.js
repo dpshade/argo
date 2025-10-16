@@ -1,5 +1,6 @@
 import { ARIO } from "@ar.io/sdk/web";
 import { cacheModule } from "./cacheModule";
+import { buildGatewayUrl } from "./gatewayService";
 
 // Initialize ARIO for mainnet (SDK v3.21.0)
 const ario = ARIO.mainnet();
@@ -146,14 +147,14 @@ export const resolveTx = async (tx) => {
   }
 
   try {
-    // First, try the .ar.io gateway
-    const arIoLink = `https://arweave.net/${tx}`;
-    console.log(`Checking .ar.io gateway for tx: ${arIoLink}`);
-    const arIoResult = await checkAccess(arIoLink);
-    if (arIoResult.status) {
-      console.log(`Accessible .ar.io gateway found for tx: ${arIoLink}`);
-      cacheModule.set(`txResolution_${tx}`, arIoLink, "arns");
-      return arIoLink;
+    // First, try the optimal gateway selected by Wayfinder
+    const optimalLink = await buildGatewayUrl(tx);
+    console.log(`Checking optimal gateway for tx: ${optimalLink}`);
+    const optimalResult = await checkAccess(optimalLink);
+    if (optimalResult.status) {
+      console.log(`Accessible optimal gateway found for tx: ${optimalLink}`);
+      cacheModule.set(`txResolution_${tx}`, optimalLink, "arns");
+      return optimalLink;
     }
 
     // If .ar.io is not accessible, try other gateways

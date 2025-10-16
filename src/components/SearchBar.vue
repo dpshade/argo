@@ -3,11 +3,7 @@ import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { debounce } from "lodash";
 import { ARIO } from "@ar.io/sdk/web";
 import { connect } from "@permaweb/aoconnect";
-import {
-    Wayfinder,
-    FastestPingRoutingStrategy,
-    NetworkGatewaysProvider,
-} from "@ar.io/wayfinder-core";
+import { getOptimalGatewayHostname } from "../helpers/gatewayService";
 import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";
 
@@ -189,6 +185,7 @@ const filteredSuggestions = computed(() => {
     // Only show special shortcuts if it's a TX ID
     if (isTxId.value) {
         const txId = query.value.trim();
+        const gateway = optimalGateway.value;
         return [
             {
                 text: "viewblock.io",
@@ -198,16 +195,16 @@ const filteredSuggestions = computed(() => {
                 type: "shortcut",
             },
             {
-                text: "arweave.net",
-                description: `arweave.net/${txId.substring(0, 8)}...`,
-                fullUrl: `https://arweave.net/${txId}`,
+                text: gateway,
+                description: `${gateway}/${txId.substring(0, 8)}...`,
+                fullUrl: `https://${gateway}/${txId}`,
                 shortcut: "data",
                 type: "shortcut",
             },
             {
-                text: "arweave.net/raw",
-                description: `arweave.net/raw/${txId.substring(0, 8)}...`,
-                fullUrl: `https://arweave.net/raw/${txId}`,
+                text: `${gateway}/raw`,
+                description: `${gateway}/raw/${txId.substring(0, 8)}...`,
+                fullUrl: `https://${gateway}/raw/${txId}`,
                 shortcut: "raw",
                 type: "shortcut",
             },
@@ -659,7 +656,7 @@ function handleBangSearch(bangName, searchQuery = "") {
             searchInput.value.focus();
         }
     } else if (bangName === "raw") {
-        const url = `https://arweave.net/raw/${searchQuery}`;
+        const url = `https://${optimalGateway.value}/raw/${searchQuery}`;
         console.log("Opening URL:", url);
         window.open(url, "_blank");
         showSuggestions.value = false;
@@ -745,30 +742,19 @@ onMounted(async () => {
     };
     document.addEventListener("mousedown", handleClickOutside);
 
-    // Initialize Wayfinder with fastest ping strategy
+    // Get optimal gateway from centralized gateway service
     try {
-        const wayfinder = new Wayfinder({
-            routingStrategy: new FastestPingRoutingStrategy(),
-            gatewaysProvider: new NetworkGatewaysProvider(),
-        });
-
-        // Get all gateways and select the optimal one
-        const gatewaysProvider = new NetworkGatewaysProvider();
-        const gateways = await gatewaysProvider.getGateways();
-        const routingStrategy = new FastestPingRoutingStrategy();
-        const optimalGatewayUrl = await routingStrategy.selectGateway({
-            gateways,
-        });
-
-        optimalGateway.value = optimalGatewayUrl.hostname;
+        const hostname = await getOptimalGatewayHostname();
+        optimalGateway.value = hostname;
         console.log(
-            `✅ Wayfinder selected optimal gateway: ${optimalGateway.value}`,
+            `✅ Using optimal gateway from gateway service: ${optimalGateway.value}`,
         );
     } catch (error) {
         console.error(
-            "❌ Failed to initialize Wayfinder, using default gateway:",
+            "❌ Failed to get optimal gateway, using default:",
             error,
         );
+        optimalGateway.value = "arweave.net"; // Fallback
     }
 
     try {

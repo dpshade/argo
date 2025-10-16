@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { specialShortcuts, defaultSettings } from "../defaults";
+import { getSpecialShortcuts, getDefaultSettings } from "../defaults";
 import { handleSearch as handleSearchLogic } from "../helpers/searchLogic";
 
 export function useSearch(isLoading) {
@@ -10,11 +10,15 @@ export function useSearch(isLoading) {
 
     isLoading.value = true;
     try {
+      // Get special shortcuts and default settings with optimal gateway
+      const shortcuts = await getSpecialShortcuts();
+      const settings = await getDefaultSettings();
+
       // Use special shortcuts and default settings
       const result = await handleSearchLogic(
         query,
-        specialShortcuts,
-        defaultSettings.arweaveExplorer,
+        shortcuts,
+        settings.arweaveExplorer,
       );
 
       if (result === null) {
