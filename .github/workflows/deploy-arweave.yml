@@ -25,16 +25,16 @@ jobs:
 
       - name: Build project
         run: bun run build
+        env:
+          BUN_ENV: production
 
-      - name: Deploy to Permaweb with On-Demand Payment
+      - name: Create .nojekyll file
+        run: touch dist/.nojekyll
+
+      - name: Deploy to Permaweb
         run: |
-          npx permaweb-deploy deploy \
-            --arns-name argo \
-            --deploy-folder dist \
-            --sig-type arweave \
-            --ario-process mainnet \
-            --on-demand ario \
-            --max-token-amount 3.0 \
-            --timeout 300000
+          npx permaweb-deploy \
+            --arns-name=argo \
+            --deploy-folder=dist
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
