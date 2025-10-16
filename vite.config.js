@@ -38,6 +38,8 @@ export default defineConfig(({ command, mode }) => {
       __VUE_OPTIONS_API__: false,
       __VUE_PROD_DEVTOOLS__: false,
     },
+    // Externalize the large SDK bundle
+    external: ['@ar.io/sdk/bundles/web.bundle.min.js'],
     resolve: {
       alias: {
         stream: "stream-browserify",
@@ -95,6 +97,7 @@ export default defineConfig(({ command, mode }) => {
           },
         },
       },
+
       chunkSizeWarningLimit: 1000,
       cssCodeSplit: false,
     },

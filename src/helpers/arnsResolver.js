@@ -1,14 +1,9 @@
 import { cacheModule } from "./cacheModule";
 import { buildGatewayUrl } from "./gatewayService";
 
-// Lazy load ARIO SDK to reduce initial bundle size
-let ario = null;
+// Temporarily disable ARIO SDK for deployment testing
 const getARIO = async () => {
-  if (!ario) {
-    const { ARIO } = await import("@ar.io/sdk/web");
-    ario = ARIO.mainnet();
-  }
-  return ario;
+  throw new Error("ArNS functionality temporarily disabled for deployment");
 };
 
 const checkAccess = async (link) => {

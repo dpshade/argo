@@ -4,14 +4,9 @@ import { debounce } from "lodash";
 import { connect } from "@permaweb/aoconnect";
 import { getOptimalGatewayHostname } from "../helpers/gatewayService";
 
-// Lazy load ARIO SDK
-let ario = null;
+// Temporarily disable ARIO SDK for deployment testing
 const getARIO = async () => {
-  if (!ario) {
-    const { ARIO } = await import("@ar.io/sdk/web");
-    ario = ARIO.mainnet();
-  }
-  return ario;
+  throw new Error("ArNS functionality temporarily disabled for deployment");
 };
 import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";

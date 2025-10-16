@@ -7,14 +7,9 @@ import {
   NetworkGatewaysProvider,
 } from "@ar.io/wayfinder-core";
 
-// Lazy load ARIO SDK
-let ario = null;
+// Temporarily disable ARIO SDK for deployment testing
 const getARIO = async () => {
-  if (!ario) {
-    const { ARIO } = await import("@ar.io/sdk/web");
-    ario = ARIO.mainnet();
-  }
-  return ario;
+  throw new Error("ArNS functionality temporarily disabled for deployment");
 };
 
 // State management
