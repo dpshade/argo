@@ -6,6 +6,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+dev.log
+nohup.out
 
 node_modules
 dist
@@ -24,3 +26,17 @@ dist-ssr
 *.sw?
 ardrive-config.json
 .vercel
+
+# Security - Wallets and Keys (NEVER commit these!)
+wallet*.json
+wallet*.txt
+private-key*
+*.jwk
+.env
+.env.*
+!.env.example
+
+# Test files
+test-gateway.js
+test-visibility-refresh.html
+wallet-base64.txt
