@@ -6,10 +6,11 @@ import {
   FastestPingRoutingStrategy,
   NetworkGatewaysProvider,
 } from "@ar.io/wayfinder-core";
+import { ARIO } from "@ar.io/sdk";
 
-// Temporarily disable ARIO SDK for deployment testing
+// Initialize ARIO for accessing AR.IO Network gateway data
 const getARIO = async () => {
-  throw new Error("ArNS functionality temporarily disabled for deployment");
+  return ARIO.mainnet();
 };
 
 // State management

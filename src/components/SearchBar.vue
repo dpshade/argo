@@ -3,11 +3,7 @@ import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { debounce } from "lodash";
 import { connect } from "@permaweb/aoconnect";
 import { getOptimalGatewayHostname } from "../helpers/gatewayService";
-
-// Temporarily disable ARIO SDK for deployment testing
-const getARIO = async () => {
-  throw new Error("ArNS functionality temporarily disabled for deployment");
-};
+import { ARIO } from "@ar.io/sdk";
 import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";
 

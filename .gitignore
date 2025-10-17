@@ -40,3 +40,5 @@ private-key*
 test-gateway.js
 test-visibility-refresh.html
 wallet-base64.txt
+test-dist/
+test-wallet/
