@@ -1,6 +1,6 @@
 // Module for managing glossary search from Arweave glossary index
 
-const GLOSSARY_INDEX_URL = "https://glossary.arweave.net/data/glossary.json";
+import { buildSubdomainUrl } from "./gatewayService.js";
 
 let glossaryCache = null;
 let glossaryTerms = [];
@@ -17,8 +17,9 @@ async function fetchGlossaryIndex() {
   }
 
   try {
-    console.log("Fetching glossary index from:", GLOSSARY_INDEX_URL);
-    const response = await fetch(GLOSSARY_INDEX_URL);
+    const glossaryIndexUrl = await buildSubdomainUrl("glossary", "/data/glossary.json");
+    console.log("Fetching glossary index from:", glossaryIndexUrl);
+    const response = await fetch(glossaryIndexUrl);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch glossary index: ${response.status}`);

@@ -11,7 +11,6 @@ export async function getSpecialShortcuts() {
   return [
     { name: "tx", url: "https://viewblock.io/arweave/tx/%s", description: "Open tx in ViewBlock" },
     { name: "data", url: `https://${gateway}/%s`, description: "Open tx data" },
-    { name: "msg", url: "https://ao.link/#/message/%s", description: "Open AO message" },
     { name: "vb", url: "https://viewblock.io/arweave/tx/%s", description: "Open in ViewBlock" },
   ];
 }
@@ -32,7 +31,6 @@ export async function getDefaultSettings() {
 export const specialShortcuts = [
   { name: "tx", url: "https://viewblock.io/arweave/tx/%s", description: "Open tx in ViewBlock" },
   { name: "data", url: "https://arweave.net/%s", description: "Open tx data (fallback)" },
-  { name: "msg", url: "https://ao.link/#/message/%s", description: "Open AO message" },
   { name: "vb", url: "https://viewblock.io/arweave/tx/%s", description: "Open in ViewBlock" },
 ];
 

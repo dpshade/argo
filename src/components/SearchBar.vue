@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { debounce } from "lodash";
-import { getOptimalGatewayHostname, fetchProcessData } from "../helpers/gatewayService";
+import { getOptimalGatewayHostname, fetchUndernames } from "../helpers/gatewayService";
 import { ARIO } from "@ar.io/sdk";
 import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";
@@ -371,21 +371,21 @@ async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
     }
 
     try {
-        // Use Wayfinder to fetch process data
-        const processData = await fetchProcessData(processId);
+        // Fetch undernames via standard gateway protocol
+        const undernameData = await fetchUndernames(processId);
 
-        // Handle Wayfinder response formats
+        // Handle undername response format
         let records;
-        if (processData && processData.records && typeof processData.records === 'object') {
-            // Wayfinder response with records object
-            records = processData.records;
-            console.log('Using Wayfinder response format');
-        } else if (typeof processData === 'object' && processData !== null) {
-            // Wayfinder response where entire object is records
-            records = processData;
-            console.log('Using Wayfinder direct records format');
+        if (undernameData && undernameData.records && typeof undernameData.records === 'object') {
+            // Standard response with records object
+            records = undernameData.records;
+            console.log('Using standard undername response format');
+        } else if (typeof undernameData === 'object' && undernameData !== null) {
+            // Direct records response
+            records = undernameData;
+            console.log('Using direct records format');
         } else {
-            throw new Error('Unexpected response format from Wayfinder - no records found');
+            throw new Error('Unexpected response format - no records found');
         }
 
         const undernames = Object.keys(records)
@@ -419,7 +419,7 @@ async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
     } catch (error) {
         console.error(`Error fetching undernames for ${arnsName} via Wayfinder:`, error);
         
-        // Enhanced error handling for Wayfinder failures
+        // Enhanced error handling for gateway failures
         if (error.message.includes('HTTP 404')) {
             console.log(`Process ${processId} not found on gateway, may be pending`);
         } else if (error.message.includes('HTTP 429')) {
@@ -427,9 +427,9 @@ async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
         } else if (error.message.includes('HTTP 5')) {
             console.log(`Gateway server error, retrying later may help`);
         } else if (error.message.includes('CORS')) {
-            console.log(`CORS issues detected with gateways`);
-        } else if (error.message.includes('All gateways failed')) {
-            console.log(`All Wayfinder gateways unavailable for ${processId}`);
+            console.log(`CORS issues detected with gateway`);
+        } else if (error.message.includes('Failed to fetch')) {
+            console.log(`Gateway unavailable for ${processId}`);
         }
         
         // Don't cache failed fetches - allow retries later
@@ -1098,7 +1098,10 @@ defineExpose({ focusInput });
                                     </svg>
                                 </div>
                             </div>
-                            <div class="suggestion-description">
+                            <div 
+                                v-if="suggestion.type !== 'arns'"
+                                class="suggestion-description"
+                            >
                                 {{ suggestion.description }}
                             </div>
                         </div>

@@ -2,19 +2,6 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import path from "path";
-import { copyFileSync, mkdirSync } from "fs";
-
-function copyMainLua() {
-  const sourceDir = path.resolve(__dirname, "ao");
-  const targetDir = path.resolve(__dirname, "public", "ao");
-  const fileName = "main.lua";
-
-  mkdirSync(targetDir, { recursive: true });
-  copyFileSync(path.join(sourceDir, fileName), path.join(targetDir, fileName));
-  console.log(`Copied ${fileName} to public/ao directory`);
-}
-
-copyMainLua();
 
 export default defineConfig(({ command, mode }) => {
   const isProduction = mode === "production";
@@ -50,7 +37,6 @@ export default defineConfig(({ command, mode }) => {
         "vue",
         "@ar.io/sdk",
         "@ar.io/sdk/web",
-        "@permaweb/aoconnect",
         "arweavekit/auth",
         "quick-wallet",
         "arweave-wallet-connector",
@@ -90,8 +76,7 @@ export default defineConfig(({ command, mode }) => {
             return `assets/${assetInfo.name}`;
           },
           manualChunks: {
-            'aoconnect': ['@permaweb/aoconnect'],
-            'ar-io-sdk': ['@ar.io/sdk', '@ar.io/wayfinder-core'],
+            'wayfinder-core': ['@ar.io/wayfinder-core'],
             'vue-vendor': ['vue'],
             'lodash': ['lodash'],
             'polyfills': ['crypto-browserify', 'stream-browserify', 'process', 'util', 'os-browserify']

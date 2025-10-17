@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, onMounted } from "vue";
+import { ref, nextTick, onMounted, provide } from "vue";
 import { useSearch } from "./composables/useSearch";
 import { useAppState } from "./composables/useAppState";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
@@ -12,6 +12,9 @@ const searchBarRef = ref(null);
 const isLoading = ref(false);
 const loadingMessage = ref("");
 const showResult = ref(false);
+
+// Provide isLoading for LoadingScreen component
+provide("isLoading", isLoading);
 
 const { searchResult, performSearch } = useSearch(isLoading);
 

@@ -4,13 +4,18 @@
 import {
   Wayfinder,
   FastestPingRoutingStrategy,
-  NetworkGatewaysProvider,
 } from "@ar.io/wayfinder-core";
-import { ARIO } from "@ar.io/sdk";
 
-// Initialize ARIO for accessing AR.IO Network gateway data
-const getARIO = async () => {
-  return ARIO.mainnet();
+// Static list of reliable gateways to avoid ARIO SDK dependencies
+const getStaticGateways = () => {
+  return [
+    { hostname: "arweave.net", port: 443, protocol: "https" },
+    { hostname: "g8way.io", port: 443, protocol: "https" },
+    { hostname: "arweave.dev", port: 443, protocol: "https" },
+    { hostname: "ar-io.dev", port: 443, protocol: "https" },
+    { hostname: "gateway.redstone.finance", port: 443, protocol: "https" },
+    { hostname: "ar-io.net", port: 443, protocol: "https" },
+  ];
 };
 
 // State management
@@ -42,14 +47,9 @@ async function initializeGateway() {
     try {
       console.log("Initializing Wayfinder for optimal gateway selection...");
 
-      // Initialize ARIO for accessing AR.IO Network gateway data
-      const ario = await getARIO();
-
-      // Get all gateways from the AR.IO Network
-      const gatewaysProvider = new NetworkGatewaysProvider({ ario });
-      const gateways = await gatewaysProvider.getGateways();
-
-      console.log(`Fetched ${gateways.length} gateways from AR.IO Network`);
+      // Use static list of reliable gateways
+      const gateways = getStaticGateways();
+      console.log(`Using ${gateways.length} static gateways`);
 
       // Select the fastest gateway using ping strategy
       const routingStrategy = new FastestPingRoutingStrategy();
@@ -110,6 +110,19 @@ export async function buildGatewayUrl(path) {
 }
 
 /**
+ * Build a subdomain URL using the optimal gateway
+ * @param {string} subdomain - The subdomain (e.g., "glossary", "fuel_permawebllms")
+ * @param {string} path - The path to append (e.g., "/data/glossary.json")
+ * @returns {Promise<string>} Full URL with subdomain on optimal gateway
+ */
+export async function buildSubdomainUrl(subdomain, path) {
+  const optimalGateway = await getOptimalGatewayHostname();
+  // Remove leading slash from path if present to avoid double slashes
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+  return `https://${subdomain}.${optimalGateway}/${cleanPath}`;
+}
+
+/**
  * Get the current gateway hostname synchronously (for use after initialization)
  * Falls back to default if not yet initialized
  */
@@ -154,64 +167,37 @@ if (typeof document !== "undefined") {
 }
 
 /**
- * Fetch process data via Wayfinder gateway
- * @param {string} processId - The AO process ID
- * @returns {Promise<Object>} Process data response
+ * Fetch undernames via standard Arweave gateway protocol
+ * @param {string} processId - The ArNS process ID
+ * @returns {Promise<Object>} Undername data response
  */
-export async function fetchProcessData(processId) {
-  // Prioritize gateways known to work well with CORS
-  const corsGateways = [
-    'ar-io.dev',     // Most reliable based on testing
-    'arweave.net',   // Official gateway
-    'g8way.io',      // Alternative gateway
-    'arweave.dev'    // Development gateway
-  ];
+export async function fetchUndernames(processId) {
+  const optimalGateway = await getOptimalGatewayUrl();
+  const gatewayUrl = `${optimalGateway}/${processId}`;
   
-  const errors = [];
-  
-  for (const gateway of corsGateways) {
-    try {
-      const gatewayUrl = `https://${gateway}/${processId}`;
-      console.log(`Trying gateway: ${gatewayUrl}`);
-      
-      const response = await fetch(gatewayUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
-        mode: 'cors'
-      });
-
-      if (!response.ok) {
-        const error = `Gateway ${gateway} returned ${response.status}`;
-        console.warn(error);
-        errors.push(error);
-        continue;
-      }
-
-      const data = await response.json();
-      console.log(`✅ Successfully fetched from ${gateway}`);
-      return data;
-    } catch (error) {
-      const errorMsg = `Gateway ${gateway} failed: ${error.message}`;
-      console.warn(errorMsg);
-      errors.push(errorMsg);
-      continue;
+  try {
+    console.log(`Fetching undernames from: ${gatewayUrl}`);
+    
+    const response = await fetch(gatewayUrl);
+    if (!response.ok) {
+      throw new Error(`Gateway returned ${response.status}`);
     }
+    
+    const data = await response.json();
+    console.log(`✅ Successfully fetched undernames from ${optimalGateway}`);
+    return data;
+  } catch (error) {
+    console.error(`Failed to fetch undernames from ${gatewayUrl}:`, error);
+    throw error;
   }
-  
-  // All gateways failed - throw descriptive error
-  const errorMessage = `All gateways failed to fetch process data for ${processId}. Errors: ${errors.join('; ')}`;
-  console.error(errorMessage);
-  throw new Error(errorMessage);
 }
 
 export default {
   getOptimalGatewayHostname,
   getOptimalGatewayUrl,
   buildGatewayUrl,
+  buildSubdomainUrl,
   getGatewayHostnameSync,
   refreshGateway,
-  fetchProcessData,
+  fetchUndernames,
 };
