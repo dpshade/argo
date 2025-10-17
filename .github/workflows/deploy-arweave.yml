@@ -33,8 +33,10 @@ jobs:
 
       - name: Deploy to Permaweb
         run: |
-          npx permaweb-deploy \
+          npx permaweb-deploy@2.5.1 \
             --arns-name=argo \
-            --deploy-folder=dist
+            --deploy-folder=dist \
+            --ario-process=qNvAoz0TgcH7DMg8BCVn8jF32QH5L6T29VjHxhHqqGE \
+            --undername=@
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
