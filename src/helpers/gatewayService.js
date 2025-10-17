@@ -153,10 +153,65 @@ if (typeof document !== "undefined") {
   });
 }
 
+/**
+ * Fetch process data via Wayfinder gateway
+ * @param {string} processId - The AO process ID
+ * @returns {Promise<Object>} Process data response
+ */
+export async function fetchProcessData(processId) {
+  // Prioritize gateways known to work well with CORS
+  const corsGateways = [
+    'ar-io.dev',     // Most reliable based on testing
+    'arweave.net',   // Official gateway
+    'g8way.io',      // Alternative gateway
+    'arweave.dev'    // Development gateway
+  ];
+  
+  const errors = [];
+  
+  for (const gateway of corsGateways) {
+    try {
+      const gatewayUrl = `https://${gateway}/${processId}`;
+      console.log(`Trying gateway: ${gatewayUrl}`);
+      
+      const response = await fetch(gatewayUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        const error = `Gateway ${gateway} returned ${response.status}`;
+        console.warn(error);
+        errors.push(error);
+        continue;
+      }
+
+      const data = await response.json();
+      console.log(`✅ Successfully fetched from ${gateway}`);
+      return data;
+    } catch (error) {
+      const errorMsg = `Gateway ${gateway} failed: ${error.message}`;
+      console.warn(errorMsg);
+      errors.push(errorMsg);
+      continue;
+    }
+  }
+  
+  // All gateways failed - throw descriptive error
+  const errorMessage = `All gateways failed to fetch process data for ${processId}. Errors: ${errors.join('; ')}`;
+  console.error(errorMessage);
+  throw new Error(errorMessage);
+}
+
 export default {
   getOptimalGatewayHostname,
   getOptimalGatewayUrl,
   buildGatewayUrl,
   getGatewayHostnameSync,
   refreshGateway,
+  fetchProcessData,
 };

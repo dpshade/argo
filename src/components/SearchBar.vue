@@ -1,8 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { debounce } from "lodash";
-import { connect } from "@permaweb/aoconnect";
-import { getOptimalGatewayHostname } from "../helpers/gatewayService";
+import { getOptimalGatewayHostname, fetchProcessData } from "../helpers/gatewayService";
 import { ARIO } from "@ar.io/sdk";
 import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";
@@ -372,72 +371,90 @@ async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
     }
 
     try {
-        const ao = connect();
-        const result = await ao.dryrun({
-            process: processId,
-            tags: [{ name: "Action", value: "Records" }],
-        });
+        // Use Wayfinder to fetch process data
+        const processData = await fetchProcessData(processId);
 
-        if (result.Messages && result.Messages.length > 0) {
-            const dataField = JSON.parse(result.Messages[0].Data);
-            const undernames = Object.keys(dataField)
-                .filter((key) => key !== "@")
-                .map((key) => ({
-                    text: `${key}_${arnsName}`,
-                    description: `Undername for ${arnsName}`,
-                    url: `https://${key}_${arnsName}.${optimalGateway.value}`,
-                    type: "arns_undername",
-                }));
-
-            // Cache both count and data
-            // Create new object reference to trigger Vue reactivity
-            undernameCountCache.value = {
-                ...undernameCountCache.value,
-                [arnsName]: undernames.length,
-            };
-            undernameDataCache.value = {
-                ...undernameDataCache.value,
-                [arnsName]: undernames,
-            };
-
-            // Only display if requested (e.g., from right arrow or hover)
-            if (shouldDisplay && undernames.length > 0) {
-                arnsUndernameSuggestions.value = undernames;
-                displayedUnderamesForArns.value = arnsName;
-                lastFetchedArnsName.value = arnsName;
-                activePanel.value = "undernames";
-                undernameHoveredIndex.value = 0;
-            }
+        // Handle Wayfinder response formats
+        let records;
+        if (processData && processData.records && typeof processData.records === 'object') {
+            // Wayfinder response with records object
+            records = processData.records;
+            console.log('Using Wayfinder response format');
+        } else if (typeof processData === 'object' && processData !== null) {
+            // Wayfinder response where entire object is records
+            records = processData;
+            console.log('Using Wayfinder direct records format');
         } else {
-            // Cache 0 count and empty array if no undernames found
-            undernameCountCache.value = {
-                ...undernameCountCache.value,
-                [arnsName]: 0,
-            };
-            undernameDataCache.value = {
-                ...undernameDataCache.value,
-                [arnsName]: [],
-            };
+            throw new Error('Unexpected response format from Wayfinder - no records found');
+        }
+
+        const undernames = Object.keys(records)
+            .filter((key) => key !== "@")
+            .map((key) => ({
+                text: `${key}_${arnsName}`,
+                description: `Undername for ${arnsName}`,
+                url: `https://${key}_${arnsName}.${optimalGateway.value}`,
+                type: "arns_undername",
+            }));
+
+        // Cache both count and data
+        // Create new object reference to trigger Vue reactivity
+        undernameCountCache.value = {
+            ...undernameCountCache.value,
+            [arnsName]: undernames.length,
+        };
+        undernameDataCache.value = {
+            ...undernameDataCache.value,
+            [arnsName]: undernames,
+        };
+
+        // Only display if requested (e.g., from right arrow or hover)
+        if (shouldDisplay && undernames.length > 0) {
+            arnsUndernameSuggestions.value = undernames;
+            displayedUnderamesForArns.value = arnsName;
+            lastFetchedArnsName.value = arnsName;
+            activePanel.value = "undernames";
+            undernameHoveredIndex.value = 0;
         }
     } catch (error) {
-        console.error(`Error fetching undernames for ${arnsName}:`, error);
+        console.error(`Error fetching undernames for ${arnsName} via Wayfinder:`, error);
+        
+        // Enhanced error handling for Wayfinder failures
+        if (error.message.includes('HTTP 404')) {
+            console.log(`Process ${processId} not found on gateway, may be pending`);
+        } else if (error.message.includes('HTTP 429')) {
+            console.log(`Rate limited, retrying later may help`);
+        } else if (error.message.includes('HTTP 5')) {
+            console.log(`Gateway server error, retrying later may help`);
+        } else if (error.message.includes('CORS')) {
+            console.log(`CORS issues detected with gateways`);
+        } else if (error.message.includes('All gateways failed')) {
+            console.log(`All Wayfinder gateways unavailable for ${processId}`);
+        }
+        
         // Don't cache failed fetches - allow retries later
-        // Only log the error but don't mark as "no undernames"
     }
 }
 
 async function fetchAllUndernamesForArnsResults(arnsSuggestions) {
-    // Fetch undernames for all ArNS in the results (in background)
-    const fetchPromises = arnsSuggestions.map((suggestion) => {
-        const arnsName = suggestion.text;
-        // Skip if already cached
-        if (undernameCountCache.value[arnsName] !== undefined) {
-            return Promise.resolve();
-        }
-        return fetchUndernamesForArns(arnsName, false);
-    });
+    // On mobile, load all undernames inline (keep existing behavior)
+    if (isMobile.value) {
+        const fetchPromises = arnsSuggestions.map((suggestion) => {
+            const arnsName = suggestion.text;
+            // Skip if already cached
+            if (undernameCountCache.value[arnsName] !== undefined) {
+                return Promise.resolve();
+            }
+            return fetchUndernamesForArns(arnsName, false);
+        });
 
-    await Promise.all(fetchPromises);
+        await Promise.all(fetchPromises);
+        return;
+    }
+
+    // On desktop, only load undernames for hovered/selected ArNS
+    // Skip background loading to reduce API calls and improve performance
+    console.log('[Undernames] Desktop mode - skipping background undername loading');
 }
 
 function onKeyDown(event) {
@@ -705,6 +722,20 @@ function searchRelatedTerm(term) {
     });
 }
 
+// Watch for hovered index changes to load undernames on desktop
+watch(hoveredIndex, (newIndex, oldIndex) => {
+    if (!isMobile.value && newIndex !== oldIndex && newIndex >= 0) {
+        const hoveredSuggestion = suggestions.value[newIndex];
+        if (hoveredSuggestion && hoveredSuggestion.type === 'arns') {
+            const arnsName = hoveredSuggestion.text;
+            // Load undernames for hovered ArNS if not already cached
+            if (undernameCountCache.value[arnsName] === undefined) {
+                fetchUndernamesForArns(arnsName, false);
+            }
+        }
+    }
+});
+
 // Watch for suggestions array changes and clamp index when needed
 watch(suggestions, (newSuggestions, oldSuggestions) => {
     // Only clamp if the array actually shrunk (e.g., undernames disappeared)
@@ -840,56 +871,7 @@ watch(suggestions, (newSuggestions) => {
     }
 });
 
-// Watch for hovering over ArNS with cached undernames - instantly expand panel (desktop only)
-watch(hoveredIndex, (newIndex) => {
-    // Skip on mobile - undernames are shown inline automatically
-    if (isMobile.value) return;
-
-    const currentSuggestion = suggestions.value[newIndex];
-
-    if (currentSuggestion && currentSuggestion.type === "arns") {
-        const arnsName = currentSuggestion.text;
-        const count = undernameCountCache.value[arnsName];
-
-        // If we have cached undernames for this ArNS, instantly expand panel
-        if (count > 0) {
-            // Fetch with display enabled to show the panel
-            fetchUndernamesForArns(arnsName, true);
-        } else {
-            // No undernames or still loading - collapse panel
-            displayedUnderamesForArns.value = null;
-            arnsUndernameSuggestions.value = [];
-            activePanel.value = "main";
-        }
-    } else {
-        // Not hovering on ArNS - collapse panel
-        displayedUnderamesForArns.value = null;
-        arnsUndernameSuggestions.value = [];
-        activePanel.value = "main";
-    }
-});
-
-// Watch for cache updates - if currently hovered item gets undernames, expand panel (desktop only)
-watch(
-    undernameCountCache,
-    (newCache) => {
-        // Skip on mobile - undernames are shown inline automatically
-        if (isMobile.value) return;
-
-        const currentSuggestion = suggestions.value[hoveredIndex.value];
-
-        if (currentSuggestion && currentSuggestion.type === "arns") {
-            const arnsName = currentSuggestion.text;
-            const count = newCache[arnsName];
-
-            // If we just got undernames for the currently hovered ArNS, expand panel
-            if (count > 0 && displayedUnderamesForArns.value !== arnsName) {
-                fetchUndernamesForArns(arnsName, true);
-            }
-        }
-    },
-    { deep: true },
-);
+// Removed automatic panel opening - users now need to press right arrow to open undernames panel (desktop only)
 
 defineExpose({ focusInput });
 </script>
@@ -1081,7 +1063,8 @@ defineExpose({ focusInput });
                                     v-if="
                                         suggestion.type === 'arns' &&
                                         undernameCountCache[suggestion.text] ===
-                                            undefined
+                                            undefined &&
+                                        (isMobile || index === hoveredIndex)
                                     "
                                     class="loading-dots"
                                 >
@@ -1094,52 +1077,31 @@ defineExpose({ focusInput });
                                         suggestion.type === 'arns' &&
                                         undernameCountCache[suggestion.text] > 0
                                     "
-                                    class="undernames-count"
+                                    class="undernames-count expandable"
+                                    :class="{ 'show-hint': index === hoveredIndex && !isMobile }"
+                                    :title="`Press right arrow to view ${undernameCountCache[suggestion.text]} undernames`"
                                 >
                                     {{ undernameCountCache[suggestion.text] }}
                                     <svg
                                         xmlns="http://www.w3.org/2000/svg"
+                                        width="12"
+                                        height="12"
                                         viewBox="0 0 24 24"
                                         fill="none"
                                         stroke="currentColor"
                                         stroke-width="2"
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
-                                        width="12"
-                                        height="12"
+                                        class="expand-icon"
                                     >
-                                        <polyline
-                                            points="9 18 15 12 9 6"
-                                        ></polyline>
+                                        <path d="m9 18 6-6-6-6" />
                                     </svg>
                                 </div>
                             </div>
-                            <span
-                                v-if="
-                                    suggestion.type === 'docs' &&
-                                    suggestion.description
-                                "
-                                class="suggestion-description"
-                            >
+                            <div class="suggestion-description">
                                 {{ suggestion.description }}
-                            </span>
+                            </div>
                         </div>
-                        <svg
-                            v-if="index === hoveredIndex"
-                            class="external-arrow"
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            width="16"
-                            height="16"
-                        >
-                            <line x1="7" y1="17" x2="17" y2="7"></line>
-                            <polyline points="7 7 17 7 17 17"></polyline>
-                        </svg>
                     </div>
                     <span
                         class="result-tag"
@@ -1189,6 +1151,9 @@ defineExpose({ focusInput });
                         <line x1="7" y1="17" x2="17" y2="7"></line>
                         <polyline points="7 7 17 7 17 17"></polyline>
                     </svg>
+                </div>
+                <div class="undernames-footer">
+                    Press ← to close
                 </div>
             </div>
         </div>
@@ -1285,8 +1250,8 @@ defineExpose({ focusInput });
                                 </span>
                             </span>
                         </span>
-                    </div>
                 </div>
+            </div>
                 <button
                     v-if="
                         selectedGlossaryTerm.docs &&
@@ -1734,18 +1699,46 @@ button:hover {
     opacity: 0.6;
     padding: 2px 6px;
     border-radius: 3px;
-    background-color: rgba(0, 0, 0, 0.1);
+    background-color: rgba(128, 128, 128, 0.1);
 }
 
-.suggestion.hovered .undernames-count,
-.suggestion:hover .undernames-count {
-    color: white;
-    opacity: 0.9;
-    background-color: rgba(255, 255, 255, 0.15);
-}
+
 
 .undernames-count svg {
     flex-shrink: 0;
+}
+
+/* Expandable indicator for desktop */
+.undernames-count.expandable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.undernames-count.expandable.show-hint {
+    opacity: 1;
+    background-color: var(--button-bg);
+    color: white;
+    border: 2px solid var(--button-hover-bg);
+    font-weight: 700;
+    transform: scale(1.05);
+}
+
+/* Expand hint text */
+.expand-hint-text {
+    font-size: 0.7rem;
+    color: white;
+    margin-left: 8px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    white-space: nowrap;
+    font-weight: 500;
+    background-color: var(--button-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.expand-hint-text.visible {
+    opacity: 1;
 }
 
 .suggestion.hovered .loading-dots .dot:nth-child(1),
@@ -2355,6 +2348,15 @@ button:hover {
 .undername-item.hovered strong,
 .undername-item.hovered .external-arrow {
     color: white;
+}
+
+.undernames-footer {
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    color: var(--placeholder-color);
+    text-align: right;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    opacity: 0.8;
 }
 
 .undername-item strong {

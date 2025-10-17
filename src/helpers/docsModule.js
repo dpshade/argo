@@ -1,5 +1,7 @@
 // Module for managing documentation search from Fuel permawebllms index
 
+import { getGatewayHostnameSync } from "./gatewayService.js";
+
 const DOCS_INDEX_URL = "https://fuel_permawebllms.arweave.net/docs-index.json";
 
 let docsCache = null;
@@ -28,14 +30,32 @@ async function fetchDocsIndex() {
     docsCache = data;
     lastFetchTime = Date.now();
 
+    // Get the optimal gateway for URL transformation
+    const optimalGateway = getGatewayHostnameSync();
+    
     // Flatten all pages from all sites into a single searchable array
     docsPages = [];
     if (data.sites) {
       Object.entries(data.sites).forEach(([siteKey, site]) => {
         if (site.pages && Array.isArray(site.pages)) {
           site.pages.forEach(page => {
+            // Transform ArNS URLs to use the current gateway
+            let transformedUrl = page.url;
+            if (page.url) {
+              if (page.url.includes('docs.ar.io')) {
+                transformedUrl = page.url.replace('docs.ar.io', `docs.${optimalGateway}`);
+                console.log(`Transformed docs URL: ${page.url} -> ${transformedUrl}`);
+              } else if (page.url.includes('cookbook.arweave.net')) {
+                transformedUrl = page.url.replace('cookbook.arweave.net', `cookbook.${optimalGateway}`);
+                console.log(`Transformed cookbook URL: ${page.url} -> ${transformedUrl}`);
+              } else if (page.url.includes('cookbook_ao.arweave.net')) {
+                transformedUrl = page.url.replace('cookbook_ao.arweave.net', `cookbook_ao.${optimalGateway}`);
+                console.log(`Transformed cookbook_ao URL: ${page.url} -> ${transformedUrl}`);
+              }
+            }
+            
             docsPages.push({
-              url: page.url,
+              url: transformedUrl,
               title: page.title,
               siteName: page.siteName || site.name,
               breadcrumbs: page.breadcrumbs || [],
