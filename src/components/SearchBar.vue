@@ -113,24 +113,21 @@ const docsSuggestionsComp = computed(() => {
     return results.map((doc) => {
         let description = doc.siteName;
 
-        // If title appears multiple times, add breadcrumbs or URL context
-        if (titleCounts[doc.title] > 1) {
-            if (doc.breadcrumbs && doc.breadcrumbs.length > 0) {
-                // Use breadcrumbs for context (last 2 breadcrumbs if available)
-                const contextBreadcrumbs = doc.breadcrumbs
-                    .slice(-2)
-                    .join(" › ");
-                description = `${doc.siteName} › ${contextBreadcrumbs}`;
-            } else {
-                // Fallback to URL path if no breadcrumbs
-                const urlPath = new URL(doc.url).pathname
-                    .split("/")
-                    .filter(Boolean)
-                    .slice(-2)
-                    .join(" › ");
-                if (urlPath) {
-                    description = `${doc.siteName} › ${urlPath}`;
-                }
+        // Always add breadcrumbs or URL context
+        if (doc.breadcrumbs && doc.breadcrumbs.length > 0) {
+            // Use all breadcrumbs for context
+            const contextBreadcrumbs = doc.breadcrumbs
+                .join(" › ");
+            description = `${doc.siteName} › ${contextBreadcrumbs}`;
+        } else {
+            // Fallback to URL path if no breadcrumbs
+            const urlPath = new URL(doc.url).pathname
+                .split("/")
+                .filter(Boolean)
+                .slice(-2)
+                .join(" › ");
+            if (urlPath) {
+                description = `${doc.siteName} › ${urlPath}`;
             }
         }
 
@@ -222,12 +219,19 @@ const filteredSuggestions = computed(() => {
     const glossary = glossarySuggestionsComp.value;
     const docs = docsSuggestionsComp.value;
 
-    // Merge glossary and docs by relevance score (interleave them)
-    const mergedDocsGlossary = [...glossary, ...docs]
-        .sort((a, b) => b.score - a.score) // Sort by score descending
+    // Merge docs and glossary, preferring docs over glossary when scores are similar
+    const mergedDocsGlossary = [...docs, ...glossary]
+        .sort((a, b) => {
+            // If scores are very close (within 10 points), prefer docs
+            if (Math.abs(a.score - b.score) <= 10) {
+                return a.type === 'docs' ? -1 : 1;
+            }
+            // Otherwise sort by score descending
+            return b.score - a.score;
+        })
         .slice(0, 5); // Limit to top 5 results
 
-    // Priority order: ArNS first, then merged docs/glossary by relevance
+    // Priority order: ArNS first, then docs/glossary with docs preference
     return [...arns, ...mergedDocsGlossary];
 });
 
