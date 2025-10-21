@@ -219,20 +219,56 @@ const filteredSuggestions = computed(() => {
     const glossary = glossarySuggestionsComp.value;
     const docs = docsSuggestionsComp.value;
 
-    // Merge docs and glossary, preferring docs over glossary when scores are similar
-    const mergedDocsGlossary = [...docs, ...glossary]
+    // Ensure source diversity: pick top result from each source type first
+    const diverseResults = [];
+    const usedUrls = new Set();
+    
+    // Add top ArNS result if available
+    if (arns.length > 0) {
+        diverseResults.push(arns[0]);
+        usedUrls.add(arns[0].text);
+    }
+    
+    // Add top docs result if available
+    if (docs.length > 0) {
+        diverseResults.push(docs[0]);
+        usedUrls.add(docs[0].fullUrl);
+    }
+    
+    // Add top glossary result if available
+    if (glossary.length > 0) {
+        diverseResults.push(glossary[0]);
+        usedUrls.add(glossary[0].text);
+    }
+
+    // Merge remaining results with priority hierarchy
+    const allRemaining = [...arns.slice(1), ...docs.slice(1), ...glossary.slice(1)]
+        .filter(item => {
+            const urlKey = item.type === 'arns' ? item.text : 
+                          item.type === 'docs' ? item.fullUrl : item.text;
+            return !usedUrls.has(urlKey);
+        })
         .sort((a, b) => {
-            // If scores are very close (within 10 points), prefer docs
-            if (Math.abs(a.score - b.score) <= 10) {
-                return a.type === 'docs' ? -1 : 1;
+            // Priority hierarchy: ArNS > docs > glossary
+            const priority = { arns: 3, docs: 2, glossary: 1 };
+            const priorityDiff = priority[b.type] - priority[a.type];
+            
+            if (priorityDiff !== 0) return priorityDiff;
+            
+            // Within same type, prefer docs over glossary when scores are similar
+            if (a.type === 'docs' && b.type === 'glossary' && Math.abs(a.score - b.score) <= 10) {
+                return -1;
             }
+            if (b.type === 'docs' && a.type === 'glossary' && Math.abs(a.score - b.score) <= 10) {
+                return 1;
+            }
+            
             // Otherwise sort by score descending
             return b.score - a.score;
-        })
-        .slice(0, 5); // Limit to top 5 results
+        });
 
-    // Priority order: ArNS first, then docs/glossary with docs preference
-    return [...arns, ...mergedDocsGlossary];
+    // Combine diverse results with remaining results, limit to top 8
+    return [...diverseResults, ...allRemaining].slice(0, 8);
 });
 
 const suggestions = computed(() => {
