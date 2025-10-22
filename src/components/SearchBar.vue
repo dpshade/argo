@@ -1337,6 +1337,11 @@ defineExpose({ focusInput });
             </div>
         </div>
 
+        <!-- Keyboard shortcut hint for HB Launcher -->
+        <div v-if="!showSuggestions || suggestions.length === 0" class="shortcut-hint">
+            <code>tab</code> for HB Launcher
+        </div>
+
         <!-- Glossary Modal -->
         <div
             v-if="showGlossaryModal"
@@ -2608,5 +2613,25 @@ button:hover {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* Keyboard shortcut hint */
+.shortcut-hint {
+    text-align: right;
+    font-size: 0.7rem;
+    color: var(--text-color);
+    opacity: 0.4;
+    margin-top: 6px;
+    padding: 0 4px;
+}
+
+.shortcut-hint code {
+    background-color: var(--input-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: inherit;
+    opacity: 1;
+    color: var(--text-color);
 }
 </style>

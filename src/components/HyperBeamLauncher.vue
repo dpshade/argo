@@ -293,10 +293,10 @@ defineExpose({
 
         <!-- Keyboard shortcut hints -->
         <div v-if="!deviceSuggestions.length && query.trim()" class="shortcut-hint">
-            ⇧⏎ or ⌘⏎ to validate & launch
+            <code>⇧⏎</code> or <code>⌘⏎</code> to validate & launch
         </div>
         <div v-if="!query.trim()" class="shortcut-hint">
-            esc to return to basic search
+            <code>esc</code> for search
         </div>
     </form>
 </template>
@@ -510,5 +510,15 @@ defineExpose({
     opacity: 0.4;
     margin-top: 6px;
     padding: 0 4px;
+}
+
+.shortcut-hint code {
+    background-color: var(--input-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: inherit;
+    opacity: 1;
+    color: var(--text-color);
 }
 </style>
