@@ -65,6 +65,7 @@ const {
 // Refs for DOM elements
 const searchInput = ref(null);
 const suggestionsRef = ref(null);
+const hyperbeamLauncherRef = ref(null);
 const searchModes = [
     { id: "all", label: "All" },
     { id: "arns", label: "ArNS" },
@@ -1022,6 +1023,20 @@ watch(suggestions, (newSuggestions) => {
     }
 });
 
+// Watch for HyperBEAM launcher mode and focus input when shown
+watch(showHashpathLauncher, (isShown) => {
+    if (isShown) {
+        nextTick(() => {
+            hyperbeamLauncherRef.value?.focus();
+        });
+    } else {
+        // Focus search input when leaving HB launcher
+        nextTick(() => {
+            focusInput();
+        });
+    }
+});
+
 // Removed automatic panel opening - users now need to press right arrow to open undernames panel (desktop only)
 
 defineExpose({ focusInput });
@@ -1030,6 +1045,7 @@ defineExpose({ focusInput });
     <!-- HyperBEAM Launcher Component -->
     <HyperBeamLauncher
         v-if="showHashpathLauncher"
+        ref="hyperbeamLauncherRef"
         @exit="handleLauncherExit"
         @launch="handleLauncherExit"
     />

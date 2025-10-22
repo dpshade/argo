@@ -13,6 +13,7 @@ export function useHashpathAutocomplete() {
   const showDropdown = ref(false);
   const selectedIndex = ref(0);
   const isLoading = ref(false);
+  const fetchedKeysCache = ref(new Map()); // Cache for fetched keys at each path
 
   // Parse current segment at cursor position
   const currentSegment = computed(() => {
@@ -24,6 +25,35 @@ export function useHashpathAutocomplete() {
   // Check if current segment looks like a device name
   const isDeviceSegment = computed(() => {
     return currentSegment.value.startsWith("~");
+  });
+
+  // Get the current path up to cursor (for fetching available keys)
+  const currentPath = computed(() => {
+    const beforeCursor = hashpathInput.value.substring(0, cursorPosition.value);
+    const atEndOfInput = cursorPosition.value === hashpathInput.value.length;
+
+    // If we're at the end of a complete device segment (e.g., "/~meta@1.0"),
+    // the path is complete - don't pop
+    if (atEndOfInput && currentSegment.value.startsWith("~") && currentSegment.value.includes("@")) {
+      return beforeCursor;
+    }
+
+    // If we're at the end of a complete operation segment (e.g., "/~meta@1.0/info"),
+    // the path is complete - don't pop
+    if (atEndOfInput && currentSegment.value.length > 0 && !currentSegment.value.startsWith("~")) {
+      return beforeCursor;
+    }
+
+    // If we're at the end and current segment is empty (e.g., after typing a trailing /),
+    // don't pop - the path is complete
+    if (currentSegment.value.length === 0 && !beforeCursor.endsWith('/')) {
+      return beforeCursor;
+    }
+
+    // Otherwise, remove the current incomplete segment
+    const segments = beforeCursor.split("/");
+    segments.pop(); // Remove last (incomplete) segment
+    return segments.join("/");
   });
 
   // Extract the device name from the path (for operation autocomplete)
@@ -40,74 +70,178 @@ export function useHashpathAutocomplete() {
     return null;
   });
 
-  // Check if we're at the operation level (typing after a device name)
+  // Check if we're at the operation level (typing after a device or operation)
   const isOperationSegment = computed(() => {
     const beforeCursor = hashpathInput.value.substring(0, cursorPosition.value);
     const segments = beforeCursor.split("/").filter(s => s.length > 0);
+    const atEndOfInput = cursorPosition.value === hashpathInput.value.length;
 
-    // We're at operation level if:
-    // 1. Current segment doesn't start with ~ (not a device)
-    // 2. There's a device segment before this one
-    // 3. We have a device in the path
-
-    // Special case: if path ends with / after a device (e.g., /~json@1.0/)
-    // and cursor is at the end, we're ready to show operations
-    if (beforeCursor.endsWith('/') && currentDevice.value && segments.length >= 1) {
+    // Special case: if path ends with / (e.g., /~json@1.0/ or /~meta@1.0/info/)
+    // We're ready to show operations if there's at least one segment
+    if (beforeCursor.endsWith('/') && segments.length >= 1) {
       return true;
     }
 
-    // Normal case: typing in a segment after a device
-    if (segments.length < 2) return false;
-    if (currentSegment.value.startsWith("~")) return false;
+    // Special case: at end of input after a complete device segment (e.g., /~meta@1.0)
+    // Check if current segment is a device pattern (~name@version)
+    if (atEndOfInput && currentSegment.value.startsWith("~") && currentSegment.value.includes("@")) {
+      return true;
+    }
 
-    // Check if there's a device in the path
-    return currentDevice.value !== null;
+    // Special case: at end of input after a complete operation segment (e.g., /~meta@1.0/info)
+    // Current segment is non-empty and doesn't start with ~
+    if (atEndOfInput && currentSegment.value.length > 0 && !currentSegment.value.startsWith("~")) {
+      return true;
+    }
+
+    // If current segment starts with ~ but doesn't match above, we're still typing a device
+    if (currentSegment.value.startsWith("~")) {
+      return false;
+    }
+
+    // Also trigger when cursor is at the end of input after a complete operation segment
+    // (e.g., cursor at end of "/~meta@1.0/info/")
+    const currentSegmentEmpty = currentSegment.value.length === 0;
+    if (atEndOfInput && currentSegmentEmpty && segments.length >= 1) {
+      return true;
+    }
+
+    // We're at operation level if we have at least one segment before current
+    // and the current segment doesn't start with ~
+    return segments.length >= 1;
   });
 
-  // Operation suggestions based on current device and operation query
+  /**
+   * Fetch available keys/operations from forward.computer for the current path
+   */
+  async function fetchAvailableKeys(path) {
+    // Return cached keys if available
+    if (fetchedKeysCache.value.has(path)) {
+      console.log('[Autocomplete] Using cached keys for:', path);
+      return fetchedKeysCache.value.get(path);
+    }
+
+    try {
+      // Clean path: remove leading slash
+      const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+
+      // Skip empty paths
+      if (!cleanPath) {
+        return [];
+      }
+
+      const keysUrl = `https://forward.computer/${cleanPath}/keys/serialize~json@1.0`;
+      console.log('[Autocomplete] Fetching keys from:', keysUrl);
+
+      const response = await fetch(keysUrl);
+
+      if (!response.ok) {
+        console.log('[Autocomplete] Keys fetch failed:', response.status);
+        fetchedKeysCache.value.set(path, []); // Cache empty result
+        return [];
+      }
+
+      const data = await response.json();
+      console.log('[Autocomplete] Keys fetched:', data);
+
+      // Build breadcrumb path from the current path
+      const pathSegments = cleanPath.split('/').filter(s => s.length > 0);
+      const breadcrumb = pathSegments.join(' › ');
+
+      // Extract operation names from VALUES (not keys)
+      // Keys are just indices, values are the actual operation names
+      const keys = Object.values(data)
+        .filter(value => value !== 'json@1.0' && typeof value === 'string') // Filter out device indicator
+        .map(operationName => ({
+          name: operationName,
+          description: breadcrumb ? `${breadcrumb} › ${operationName}` : operationName,
+          type: 'operation',
+          breadcrumb: breadcrumb
+        }));
+
+      // Cache the results
+      fetchedKeysCache.value.set(path, keys);
+      return keys;
+
+    } catch (error) {
+      console.warn('[Autocomplete] Error fetching keys:', error.message);
+      fetchedKeysCache.value.set(path, []); // Cache empty result
+      return [];
+    }
+  }
+
+  // Operation suggestions based on current path and dynamically fetched keys
   const operationSuggestions = computed(() => {
     console.log('[Autocomplete] operationSuggestions computed:', {
       isOperationSegment: isOperationSegment.value,
       currentDevice: currentDevice.value,
-      currentSegment: currentSegment.value
+      currentSegment: currentSegment.value,
+      currentPath: currentPath.value
     });
 
-    if (!isOperationSegment.value || !currentDevice.value) {
-      console.log('[Autocomplete] Early return: not operation segment or no device');
+    if (!isOperationSegment.value) {
+      console.log('[Autocomplete] Early return: not operation segment');
       return [];
     }
 
-    const device = currentDevice.value;
-    const query = currentSegment.value;
+    const path = currentPath.value;
+    const pathSegments = path.split('/').filter(s => s.length > 0);
+    const breadcrumb = pathSegments.join(' › ');
 
-    // Check if device has operations
-    const hasOps = deviceHasOperations(device);
-    console.log('[Autocomplete] Device has operations?', device, hasOps);
-    if (!hasOps) return [];
+    // Check if we're at device level - true when the last segment in the path is a device
+    // Examples: /~meta@1.0/ or /~meta@1.0/info/~json@1.0/
+    const lastSegment = pathSegments[pathSegments.length - 1] || '';
+    const isAtDeviceLevel = lastSegment.startsWith('~');
 
-    // If no query, show all operations for the device
-    if (!query || query.length === 0) {
-      const ops = searchOperations(device, "", 10);
-      console.log('[Autocomplete] Empty query, showing all operations:', ops.length);
+    // Determine the query for filtering operations
+    // If current segment is a complete device (contains @) or complete operation (non-empty, no ~),
+    // we're ready to show all nested operations (empty query)
+    // Otherwise use the current segment as the query
+    const atEndOfInput = cursorPosition.value === hashpathInput.value.length;
+    const currentSegmentIsCompleteDevice = currentSegment.value.startsWith("~") && currentSegment.value.includes("@");
+    const currentSegmentIsCompleteOperation = atEndOfInput && currentSegment.value.length > 0 && !currentSegment.value.startsWith("~");
+    const query = (atEndOfInput && (currentSegmentIsCompleteDevice || currentSegmentIsCompleteOperation)) ? "" : currentSegment.value;
+
+    // For device level, ALWAYS use static catalog operations (don't fetch from /keys)
+    if (isAtDeviceLevel && currentDevice.value) {
+      const device = currentDevice.value;
+      const hasOps = deviceHasOperations(device);
+
+      if (!hasOps) {
+        console.log('[Autocomplete] Device has no operations in catalog');
+        return [];
+      }
+
+      const ops = query ? searchOperations(device, query, 10) : searchOperations(device, "", 10);
+      console.log('[Autocomplete] Using static catalog operations:', ops.length);
+
       return ops.map(op => ({
         name: op.name,
-        description: op.description,
+        description: breadcrumb ? `${breadcrumb} › ${op.name}` : op.description,
         params: op.params || [],
         type: "operation",
-        device: device
+        device: device,
+        breadcrumb: breadcrumb
       }));
     }
 
-    // Search operations by query
-    const ops = searchOperations(device, query, 10);
-    console.log('[Autocomplete] Search results for query:', query, ops.length);
-    return ops.map(op => ({
-      name: op.name,
-      description: op.description,
-      params: op.params || [],
-      type: "operation",
-      device: device
-    }));
+    // For nested operation levels, use fetched keys from /keys endpoint
+    const cachedKeys = fetchedKeysCache.value.get(path);
+    if (cachedKeys && cachedKeys.length > 0) {
+      console.log('[Autocomplete] Using cached keys for nested path:', cachedKeys.length);
+
+      // Filter by query if we have one
+      if (query && query.length > 0) {
+        return cachedKeys.filter(key =>
+          key.name.toLowerCase().includes(query.toLowerCase())
+        );
+      }
+
+      return cachedKeys;
+    }
+
+    console.log('[Autocomplete] No suggestions available');
+    return [];
   });
 
   // Update suggestions when input or cursor position changes
@@ -119,11 +253,23 @@ export function useHashpathAutocomplete() {
       cursorPosition: cursorPosition.value,
       segment,
       currentDevice: currentDevice.value,
-      isOperationSegment: isOperationSegment.value
+      isOperationSegment: isOperationSegment.value,
+      currentPath: currentPath.value
     });
 
     // Priority 1: Check for operation suggestions
-    if (isOperationSegment.value && currentDevice.value) {
+    if (isOperationSegment.value) {
+      const path = currentPath.value;
+      const pathSegments = path.split('/').filter(s => s.length > 0);
+      const lastSegment = pathSegments[pathSegments.length - 1] || '';
+      const isAtDeviceLevel = lastSegment.startsWith('~');
+
+      // Only fetch keys for nested operation paths, not device-level paths
+      if (!isAtDeviceLevel && path && !fetchedKeysCache.value.has(path)) {
+        console.log('[Autocomplete] Fetching keys for nested path:', path);
+        await fetchAvailableKeys(path);
+      }
+
       const opSuggestions = operationSuggestions.value;
       console.log('[Autocomplete] Operation suggestions:', opSuggestions.length, opSuggestions);
       if (opSuggestions.length > 0) {
@@ -136,6 +282,18 @@ export function useHashpathAutocomplete() {
 
     // Priority 2: Check for device suggestions
     if (segment) {
+      // Skip device suggestions if current segment is already a complete device (e.g., ~compute@1.0)
+      // At that point, we should only show operations
+      const atEndOfInput = cursorPosition.value === hashpathInput.value.length;
+      const currentSegmentIsCompleteDevice = segment.startsWith("~") && segment.includes("@");
+
+      if (atEndOfInput && currentSegmentIsCompleteDevice) {
+        // Don't show device suggestions for complete devices
+        showDropdown.value = false;
+        suggestions.value = [];
+        return;
+      }
+
       // Prepend ~ if user didn't type it (for convenience)
       const searchQuery = segment.startsWith('~') ? segment : `~${segment}`;
 
@@ -146,13 +304,20 @@ export function useHashpathAutocomplete() {
         return;
       }
 
+      // Build breadcrumb for context
+      const pathForBreadcrumb = currentPath.value;
+      const pathSegments = pathForBreadcrumb.split('/').filter(s => s.length > 0);
+      const breadcrumb = pathSegments.join(' › ');
+
       // Search for matching devices
       const matches = searchDevices(searchQuery, 10);
 
       if (matches.length > 0) {
         suggestions.value = matches.map(device => ({
           ...device,
-          type: "device"
+          description: breadcrumb ? `${breadcrumb} › ${device.name}` : device.description,
+          type: "device",
+          breadcrumb: breadcrumb
         }));
         showDropdown.value = true;
         selectedIndex.value = 0;
@@ -169,6 +334,28 @@ export function useHashpathAutocomplete() {
   function acceptSuggestion(suggestionText, suggestionType = "device") {
     const input = hashpathInput.value;
     const cursor = cursorPosition.value;
+    const atEndOfInput = cursor === input.length;
+
+    // Special case: if current segment is a complete device (e.g., ~meta@1.0) or complete operation (e.g., info),
+    // and we're selecting an OPERATION suggestion, append instead of replace
+    const currentSegmentIsCompleteDevice = currentSegment.value.startsWith("~") && currentSegment.value.includes("@");
+    const currentSegmentIsCompleteOperation = atEndOfInput && currentSegment.value.length > 0 && !currentSegment.value.startsWith("~");
+
+    // Only append when selecting an operation after a complete segment
+    // When selecting a device, always replace (even if current segment looks like complete operation)
+    if (atEndOfInput && (currentSegmentIsCompleteDevice || currentSegmentIsCompleteOperation) && suggestionType === "operation") {
+      // Append the suggestion after the current segment
+      const newInput = input + '/' + suggestionText;
+      const newCursorPosition = newInput.length;
+
+      hashpathInput.value = newInput;
+      showDropdown.value = false;
+
+      return {
+        newInput,
+        newCursorPosition
+      };
+    }
 
     // Find segment boundary at cursor (look backwards for '/')
     let segmentStart = 0;
@@ -188,15 +375,17 @@ export function useHashpathAutocomplete() {
       }
     }
 
-    // Build the new path with segment + trailing /
+    // Build the new path
     const beforeSegment = input.substring(0, segmentStart);
     const afterSegment = input.substring(segmentEnd);
 
-    // Add trailing / after segment (unless there's already one)
-    const segmentWithSlash = afterSegment.startsWith('/') ? suggestionText : `${suggestionText}/`;
+    // Check if we need a separator before the suggestion
+    // Add '/' if beforeSegment exists and doesn't end with '/'
+    const needsLeadingSeparator = beforeSegment.length > 0 && !beforeSegment.endsWith('/');
+    const segmentWithSeparator = needsLeadingSeparator ? `/${suggestionText}` : suggestionText;
 
     // Build new input
-    let newInput = beforeSegment + segmentWithSlash + afterSegment;
+    let newInput = beforeSegment + segmentWithSeparator + afterSegment;
 
     // Track if we add leading slash for cursor positioning
     let addedLeadingSlash = false;
@@ -207,10 +396,10 @@ export function useHashpathAutocomplete() {
       addedLeadingSlash = true;
     }
 
-    // Calculate cursor position after the inserted segment and trailing /
+    // Calculate cursor position after the inserted segment (no trailing /)
     const newCursorPosition = (addedLeadingSlash ? 1 : 0) +
                               beforeSegment.length +
-                              segmentWithSlash.length;
+                              segmentWithSeparator.length;
 
     hashpathInput.value = newInput;
     showDropdown.value = false;
@@ -338,8 +527,10 @@ export function useHashpathAutocomplete() {
     isDeviceSegment,
     isOperationSegment,
     currentDevice,
+    currentPath,
     isValidPath,
     operationSuggestions,
+    fetchedKeysCache,
 
     // Methods
     acceptSuggestion,
@@ -349,6 +540,7 @@ export function useHashpathAutocomplete() {
     executeHashpath,
     reset,
     initializeDevices,
-    searchDevices
+    searchDevices,
+    fetchAvailableKeys
   };
 }

@@ -196,21 +196,8 @@ export const DEVICE_OPERATIONS = {
     '~meta@1.0': {
         type: 'core',
         operations: [
-            {
-                name: 'info',
-                description: 'Get node information and configuration',
-                params: ['build-time', 'device', 'node', 'path', 'source', 'version']
-            },
-            {
-                name: 'build',
-                description: 'Get build information',
-                params: []
-            },
-            {
-                name: 'adopt_node_message',
-                description: 'Adopt node configuration message',
-                params: ['address', 'body', 'history-length', 'initialized', 'method']
-            }
+            { name: 'info', description: 'Get node information and configuration', params: [] },
+            { name: 'build', description: 'Get build information', params: [] }
         ]
     },
 

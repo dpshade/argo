@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue';
 import { useHashpathAutocomplete } from '../composables/useHashpathAutocomplete';
-import { isValidHashpath, isTransactionId } from '../helpers/hyperbeamDevices';
+import { useKeyboardShortcuts } from '../composables/useKeyboardShortcuts';
 
 const emit = defineEmits(['exit', 'launch']);
 
@@ -64,8 +64,45 @@ function handleCursorChange(event) {
     hashpathAutocomplete.cursorPosition.value = newCursor;
 }
 
+// Validate path by checking if forward.computer returns 200
+async function validateAndLaunch() {
+    const path = query.value.trim();
+
+    if (!path) {
+        console.warn('Empty path provided');
+        return;
+    }
+
+    // Clean path
+    const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    const url = `https://forward.computer/${cleanPath}`;
+
+    try {
+        console.log('Validating path:', url);
+        const response = await fetch(url, { method: 'HEAD' });
+
+        if (response.ok) {
+            console.log('Path validated with status:', response.status);
+            window.open(url, '_blank');
+            emit('launch', path);
+        } else {
+            console.warn('Path validation failed:', response.status);
+            // Could show error message to user here
+        }
+    } catch (error) {
+        console.error('Path validation error:', error);
+    }
+}
+
 // Handle keyboard navigation
 function handleKeyDown(event) {
+    // Handle Shift+Enter or Cmd+Enter for force submit with validation
+    if (event.key === 'Enter' && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        validateAndLaunch();
+        return;
+    }
+
     // Handle Tab/Enter for path-aware completion when suggestions are shown
     if (deviceSuggestions.value.length > 0 && (event.key === 'Tab' || event.key === 'Enter')) {
         event.preventDefault();
@@ -157,11 +194,6 @@ function launchHashpath() {
         return;
     }
 
-    if (!isValidHashpath(path)) {
-        console.warn('Invalid hashpath:', path);
-        return;
-    }
-
     // Remove leading slash for the URL (forward.computer doesn't expect it)
     const cleanPath = path.startsWith('/') ? path.substring(1) : path;
     const url = `https://forward.computer/${cleanPath}`;
@@ -178,20 +210,41 @@ function onSubmit(event) {
     launchHashpath();
 }
 
+// Focus input function
+function focusInput() {
+    inputRef.value?.focus();
+}
+
+// Set up keyboard shortcuts for / and cmd+k
+const handlers = {
+    handleSearchShortcut: focusInput
+};
+
+useKeyboardShortcuts(handlers);
+
 // Expose focus method for parent component
 defineExpose({
-    focus: () => inputRef.value?.focus()
+    focus: focusInput
 });
 </script>
 
 <template>
     <form @submit="onSubmit" class="hyperbeam-launcher">
         <div class="input-wrapper">
+            <!-- HyperBEAM Flag Icon -->
+            <div class="hb-icon">
+                <img
+                    src="/hb-flag.png"
+                    alt="HyperBEAM"
+                    class="hb-flag-gif"
+                />
+            </div>
+
             <input
                 ref="inputRef"
                 type="text"
                 v-model="query"
-                placeholder="Enter HyperBEAM path (txID or device)..."
+                placeholder="Enter HB path (~meta@1.0/info)"
                 @input="handleInput"
                 @keydown="handleKeyDown"
                 @mouseup="handleCursorChange"
@@ -202,7 +255,7 @@ defineExpose({
             />
             <button
                 type="submit"
-                :disabled="!isValidHashpath(query)"
+                :disabled="!query.trim()"
                 class="launch-button"
                 :class="{ 'with-suggestions': deviceSuggestions.length > 0 }"
             >
@@ -238,9 +291,12 @@ defineExpose({
             </div>
         </div>
 
-        <!-- Mode indicator -->
-        <div v-if="!deviceSuggestions.length" class="mode-indicator">
-            HyperBEAM Launch Mode • Press Esc to exit
+        <!-- Keyboard shortcut hints -->
+        <div v-if="!deviceSuggestions.length && query.trim()" class="shortcut-hint">
+            ⇧⏎ or ⌘⏎ to validate & launch
+        </div>
+        <div v-if="!query.trim()" class="shortcut-hint">
+            esc to return to basic search
         </div>
     </form>
 </template>
@@ -258,13 +314,37 @@ defineExpose({
     width: 100%;
 }
 
+.hb-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.6rem 0.8rem;
+    background-color: var(--input-bg);
+    border: none;
+    border-radius: 5px 0 0 5px;
+    transition: all 0.2s ease;
+    color: var(--text-color);
+}
+
+.hb-icon .hb-flag-gif {
+    width: 18px;
+    height: 18px;
+    display: block;
+    object-fit: contain;
+}
+
+.input-wrapper:has(.hashpath-input.with-suggestions) .hb-icon {
+    border-radius: 5px 0 0 0;
+}
+
 .hashpath-input {
     flex-grow: 1;
     padding: 0.6rem 1rem;
     font-size: 1rem;
+    /* font-style: italic; */
     border: none;
-    border-radius: 5px 0 0 5px;
-    background-color: var(--input-bg);
+    border-radius: 0;
+    background-color: var(--input-focus-bg);
     color: var(--text-color);
     outline: none;
     transition: border-radius 0.3s ease;
@@ -277,7 +357,7 @@ defineExpose({
 }
 
 .hashpath-input.with-suggestions {
-    border-radius: 5px 0 0 0;
+    border-radius: 0;
 }
 
 .launch-button {
@@ -412,20 +492,6 @@ defineExpose({
     padding: 2px 10px;
 }
 
-.mode-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    margin-top: 8px;
-    background-color: var(--button-bg);
-    color: white;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    animation: slideDown 0.3s ease-out;
-}
-
 @keyframes slideDown {
     from {
         opacity: 0;
@@ -435,5 +501,14 @@ defineExpose({
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+.shortcut-hint {
+    text-align: right;
+    font-size: 0.7rem;
+    color: var(--text-color);
+    opacity: 0.4;
+    margin-top: 6px;
+    padding: 0 4px;
 }
 </style>
