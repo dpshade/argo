@@ -7,8 +7,10 @@ import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";
 import { getClipboardContent, isValidArweaveTransactionId } from "../helpers/clipboardValidator";
 import { searchDevices } from "../helpers/hyperbeamDevices";
+import { parseUndernameResponse, logUndernameError } from "../helpers/undernameHelpers";
 import { useAppState } from "../composables/useAppState";
 import { useKeyboardShortcuts } from "../composables/useKeyboardShortcuts";
+import { useUndernamesCache } from "../composables/useUndernamesCache";
 import HyperBeamLauncher from "./HyperBeamLauncher.vue";
 
 // No props needed - we use hardcoded special shortcuts
@@ -50,8 +52,15 @@ const selectedGlossaryTerm = ref(null);
 const optimalGateway = ref("arweave.net");
 const arnsDomains = ref([]);
 const arnsProcessIds = ref({});
-const undernameCountCache = ref({});
-const undernameDataCache = ref({});
+
+// Undernames cache
+const {
+    undernameCountCache,
+    undernameDataCache,
+    getCachedUndernames,
+    hasCachedUndernames,
+    cacheUndernames,
+} = useUndernamesCache();
 
 // Refs for DOM elements
 const searchInput = ref(null);
@@ -438,93 +447,43 @@ async function onSubmit(event) {
 
 async function fetchUndernamesForArns(arnsName, shouldDisplay = true) {
     // If we have cached data and should display, show it immediately
-    if (shouldDisplay && undernameDataCache.value[arnsName]) {
-        arnsUndernameSuggestions.value = undernameDataCache.value[arnsName];
-        displayedUnderamesForArns.value = arnsName;
-        lastFetchedArnsName.value = arnsName;
-        activePanel.value = "undernames";
-        undernameHoveredIndex.value = 0;
+    if (shouldDisplay && hasCachedUndernames(arnsName)) {
+        const cached = getCachedUndernames(arnsName);
+        displayUndernamesPanel(arnsName, cached);
         // Continue to refetch in background to get latest data
     }
 
     const processId = arnsProcessIds.value[arnsName];
     if (!processId) {
         console.warn(`No process ID found for ArNS: ${arnsName}`);
-        undernameCountCache.value = {
-            ...undernameCountCache.value,
-            [arnsName]: 0,
-        };
-        undernameDataCache.value = {
-            ...undernameDataCache.value,
-            [arnsName]: [],
-        };
+        cacheUndernames(arnsName, []);
         return;
     }
 
     try {
-        // Fetch undernames via standard gateway protocol
+        // Fetch and parse undernames
         const undernameData = await fetchUndernames(processId);
+        const undernames = parseUndernameResponse(undernameData, arnsName, optimalGateway.value);
 
-        // Handle undername response format
-        let records;
-        if (undernameData && undernameData.records && typeof undernameData.records === 'object') {
-            // Standard response with records object
-            records = undernameData.records;
-            console.log('Using standard undername response format');
-        } else if (typeof undernameData === 'object' && undernameData !== null) {
-            // Direct records response
-            records = undernameData;
-            console.log('Using direct records format');
-        } else {
-            throw new Error('Unexpected response format - no records found');
-        }
+        // Cache the results
+        cacheUndernames(arnsName, undernames);
 
-        const undernames = Object.keys(records)
-            .filter((key) => key !== "@")
-            .map((key) => ({
-                text: `${key}_${arnsName}`,
-                description: `Undername for ${arnsName}`,
-                url: `https://${key}_${arnsName}.${optimalGateway.value}`,
-                type: "arns_undername",
-            }));
-
-        // Cache both count and data
-        // Create new object reference to trigger Vue reactivity
-        undernameCountCache.value = {
-            ...undernameCountCache.value,
-            [arnsName]: undernames.length,
-        };
-        undernameDataCache.value = {
-            ...undernameDataCache.value,
-            [arnsName]: undernames,
-        };
-
-        // Only display if requested (e.g., from right arrow or hover)
+        // Display if requested and we have results
         if (shouldDisplay && undernames.length > 0) {
-            arnsUndernameSuggestions.value = undernames;
-            displayedUnderamesForArns.value = arnsName;
-            lastFetchedArnsName.value = arnsName;
-            activePanel.value = "undernames";
-            undernameHoveredIndex.value = 0;
+            displayUndernamesPanel(arnsName, undernames);
         }
     } catch (error) {
-        console.error(`Error fetching undernames for ${arnsName} via Wayfinder:`, error);
-        
-        // Enhanced error handling for gateway failures
-        if (error.message.includes('HTTP 404')) {
-            console.log(`Process ${processId} not found on gateway, may be pending`);
-        } else if (error.message.includes('HTTP 429')) {
-            console.log(`Rate limited, retrying later may help`);
-        } else if (error.message.includes('HTTP 5')) {
-            console.log(`Gateway server error, retrying later may help`);
-        } else if (error.message.includes('CORS')) {
-            console.log(`CORS issues detected with gateway`);
-        } else if (error.message.includes('Failed to fetch')) {
-            console.log(`Gateway unavailable for ${processId}`);
-        }
-        
+        logUndernameError(error, arnsName, processId);
         // Don't cache failed fetches - allow retries later
     }
+}
+
+function displayUndernamesPanel(arnsName, undernames) {
+    arnsUndernameSuggestions.value = undernames;
+    displayedUnderamesForArns.value = arnsName;
+    lastFetchedArnsName.value = arnsName;
+    activePanel.value = "undernames";
+    undernameHoveredIndex.value = 0;
 }
 
 async function fetchAllUndernamesForArnsResults(arnsSuggestions) {
@@ -583,141 +542,167 @@ async function handleTabKey() {
     }
 }
 
+// Keyboard navigation handlers
+function handleArrowLeftKey(event) {
+    if (isMobile.value) return false;
+
+    event.preventDefault();
+    const currentSuggestion = suggestions.value[hoveredIndex.value];
+
+    if (
+        currentSuggestion &&
+        currentSuggestion.type === "arns" &&
+        arnsUndernameSuggestions.value.length > 0
+    ) {
+        activePanel.value = "main";
+        displayedUnderamesForArns.value = null;
+    }
+    return true;
+}
+
+function handleArrowRightKey(event) {
+    if (isMobile.value) return false;
+
+    event.preventDefault();
+    const currentSuggestion = suggestions.value[hoveredIndex.value];
+
+    if (currentSuggestion && currentSuggestion.type === "arns") {
+        const arnsName = currentSuggestion.text;
+
+        // Clear any pending timeout
+        if (undernamesFetchTimeout) {
+            clearTimeout(undernamesFetchTimeout);
+            undernamesFetchTimeout = null;
+        }
+
+        // If we have cached undernames for this ArNS, reopen panel instantly
+        if (
+            lastFetchedArnsName.value === arnsName &&
+            arnsUndernameSuggestions.value.length > 0
+        ) {
+            activePanel.value = "undernames";
+            undernameHoveredIndex.value = 0;
+            displayedUnderamesForArns.value = arnsName;
+        } else {
+            // Otherwise, fetch undernames immediately
+            fetchUndernamesForArns(arnsName);
+        }
+    }
+    return true;
+}
+
+function handleArrowUpDownKey(event, direction) {
+    event.preventDefault();
+    isKeyboardNavigating.value = true;
+
+    if (activePanel.value === "undernames") {
+        // Navigate within undernames panel
+        const newIndex = undernameHoveredIndex.value + direction;
+
+        if (newIndex >= arnsUndernameSuggestions.value.length) {
+            // Moving down past last undername - return to main panel
+            activePanel.value = "main";
+            lastKeyboardHoveredIndex.value = Math.min(
+                hoveredIndex.value + 1,
+                suggestions.value.length - 1,
+            );
+            hoveredIndex.value = lastKeyboardHoveredIndex.value;
+        } else if (newIndex < 0) {
+            // Moving up past first undername - close panel and navigate up
+            activePanel.value = "main";
+            undernameHoveredIndex.value = 0;
+            lastKeyboardHoveredIndex.value = Math.max(
+                hoveredIndex.value - 1,
+                0,
+            );
+            hoveredIndex.value = lastKeyboardHoveredIndex.value;
+        } else {
+            // Normal navigation within undernames
+            undernameHoveredIndex.value = newIndex;
+        }
+    } else {
+        // Navigate within main suggestions
+        lastKeyboardHoveredIndex.value =
+            (lastKeyboardHoveredIndex.value +
+                direction +
+                suggestions.value.length) %
+            suggestions.value.length;
+        hoveredIndex.value = lastKeyboardHoveredIndex.value;
+    }
+
+    isMouseHovering.value = false;
+    scrollSuggestionIntoView();
+}
+
+function handleEnterKey(event) {
+    if (suggestions.value.length === 0) return false;
+
+    event.preventDefault();
+
+    if (
+        activePanel.value === "undernames" &&
+        arnsUndernameSuggestions.value[undernameHoveredIndex.value]
+    ) {
+        // Open the selected undername
+        const undername =
+            arnsUndernameSuggestions.value[undernameHoveredIndex.value];
+        window.open(undername.url, "_blank");
+    } else {
+        // Select the top suggestion (or hovered one if keyboard navigation is active)
+        const targetIndex = isKeyboardNavigating.value && hoveredIndex.value >= 0 ? hoveredIndex.value : 0;
+        const selectedSuggestion = suggestions.value[targetIndex];
+
+        if (selectedSuggestion) {
+            const action = handleSuggestionAction[selectedSuggestion.type];
+            if (action) {
+                action(
+                    ["shortcut", "docs", "glossary", "device"].includes(
+                        selectedSuggestion.type,
+                    )
+                        ? selectedSuggestion
+                        : selectedSuggestion.text,
+                    selectedSuggestion
+                );
+            }
+        }
+    }
+    return true;
+}
+
+function handleEscapeKey(event) {
+    event.preventDefault();
+    showSuggestions.value = false;
+    exitFullScreen();
+}
+
 function onKeyDown(event) {
-    // Handle Tab key for empty input (regardless of focus state)
+    // Dispatch to specific key handlers
     if (event.key === "Tab" && query.value.trim() === '') {
         event.preventDefault();
         handleTabKey();
         return;
     }
 
-    if (!isMobile.value && event.key === "ArrowLeft") {
-        // Left arrow: instantly close undernames panel (but keep data cached)
-        event.preventDefault();
-        const currentSuggestion = suggestions.value[hoveredIndex.value];
-
-        if (
-            currentSuggestion &&
-            currentSuggestion.type === "arns" &&
-            arnsUndernameSuggestions.value.length > 0
-        ) {
-            activePanel.value = "main";
-            displayedUnderamesForArns.value = null;
-        }
-        return;
+    if (event.key === "ArrowLeft") {
+        if (handleArrowLeftKey(event)) return;
     }
 
-    if (!isMobile.value && event.key === "ArrowRight") {
-        // Right arrow: instantly expand undernames for current ArNS
-        event.preventDefault();
-        const currentSuggestion = suggestions.value[hoveredIndex.value];
-
-        if (currentSuggestion && currentSuggestion.type === "arns") {
-            const arnsName = currentSuggestion.text;
-
-            // Clear any pending timeout
-            if (undernamesFetchTimeout) {
-                clearTimeout(undernamesFetchTimeout);
-                undernamesFetchTimeout = null;
-            }
-
-            // If we have cached undernames for this ArNS, reopen panel instantly
-            if (
-                lastFetchedArnsName.value === arnsName &&
-                arnsUndernameSuggestions.value.length > 0
-            ) {
-                activePanel.value = "undernames";
-                undernameHoveredIndex.value = 0;
-                displayedUnderamesForArns.value = arnsName;
-            } else {
-                // Otherwise, fetch undernames immediately
-                fetchUndernamesForArns(arnsName);
-            }
-        }
-        return;
+    if (event.key === "ArrowRight") {
+        if (handleArrowRightKey(event)) return;
     }
 
-    if (
-        !isMobile.value &&
-        (event.key === "ArrowDown" || event.key === "ArrowUp")
-    ) {
-        event.preventDefault();
-        isKeyboardNavigating.value = true;
+    if (!isMobile.value && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
         const direction = event.key === "ArrowDown" ? 1 : -1;
+        handleArrowUpDownKey(event, direction);
+        return;
+    }
 
-        if (activePanel.value === "undernames") {
-            // Navigate within undernames panel
-            const newIndex = undernameHoveredIndex.value + direction;
+    if (event.key === "Enter") {
+        if (handleEnterKey(event)) return;
+    }
 
-            if (newIndex >= arnsUndernameSuggestions.value.length) {
-                // Moving down past last undername - return to main panel (keep data cached)
-                activePanel.value = "main";
-                // Move to next item in main suggestions
-                lastKeyboardHoveredIndex.value = Math.min(
-                    hoveredIndex.value + 1,
-                    suggestions.value.length - 1,
-                );
-                hoveredIndex.value = lastKeyboardHoveredIndex.value;
-            } else if (newIndex < 0) {
-                // Moving up past first undername - close panel and navigate up in main results
-                activePanel.value = "main";
-                undernameHoveredIndex.value = 0;
-                // Move up one item in main suggestions
-                lastKeyboardHoveredIndex.value = Math.max(
-                    hoveredIndex.value - 1,
-                    0,
-                );
-                hoveredIndex.value = lastKeyboardHoveredIndex.value;
-            } else {
-                // Normal navigation within undernames
-                undernameHoveredIndex.value = newIndex;
-            }
-        } else {
-            // Navigate within main suggestions
-            lastKeyboardHoveredIndex.value =
-                (lastKeyboardHoveredIndex.value +
-                    direction +
-                    suggestions.value.length) %
-                suggestions.value.length;
-            hoveredIndex.value = lastKeyboardHoveredIndex.value;
-        }
-
-        isMouseHovering.value = false;
-        scrollSuggestionIntoView();
-    } else if (event.key === "Enter" && suggestions.value.length > 0) {
-        event.preventDefault();
-        if (
-            activePanel.value === "undernames" &&
-            arnsUndernameSuggestions.value[undernameHoveredIndex.value]
-        ) {
-            // Open the selected undername
-            const undername =
-                arnsUndernameSuggestions.value[undernameHoveredIndex.value];
-            window.open(undername.url, "_blank");
-        } else {
-            // Select the top suggestion (or hovered one if keyboard navigation is active)
-            const targetIndex = isKeyboardNavigating.value && hoveredIndex.value >= 0 ? hoveredIndex.value : 0;
-            const selectedSuggestion = suggestions.value[targetIndex];
-            
-            if (selectedSuggestion) {
-                const action = handleSuggestionAction[selectedSuggestion.type];
-                if (action) {
-                    // Pass the full suggestion object for shortcuts, docs, and glossary, just text for others
-                    action(
-                        ["shortcut", "docs", "glossary", "device"].includes(
-                            selectedSuggestion.type,
-                        )
-                            ? selectedSuggestion
-                            : selectedSuggestion.text,
-                        selectedSuggestion
-                    );
-                }
-            }
-        }
-    } else if (event.key === "Escape") {
-        event.preventDefault();
-        showSuggestions.value = false;
-        exitFullScreen();
+    if (event.key === "Escape") {
+        handleEscapeKey(event);
     }
 }
 
