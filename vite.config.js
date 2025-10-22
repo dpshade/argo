@@ -3,7 +3,7 @@ import vue from "@vitejs/plugin-vue";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import path from "path";
 
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ mode }) => {
   const isProduction = mode === "production";
 
   return {
@@ -30,6 +30,7 @@ export default defineConfig(({ command, mode }) => {
       alias: {
         stream: "stream-browserify",
         crypto: "crypto-browserify",
+        "@": path.resolve(__dirname, "src"),
       },
     },
     optimizeDeps: {

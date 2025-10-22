@@ -7,6 +7,13 @@ export function useKeyboardShortcuts(handlers) {
                      event.target.tagName === 'TEXTAREA' ||
                      event.target.isContentEditable;
 
+    // NEW: Tab key handling for empty input
+    if (event.key === "Tab" && !isTyping) {
+      event.preventDefault();
+      handlers.handleTabKey?.();
+      return;
+    }
+
     if ((event.metaKey || event.ctrlKey) && event.key === "k") {
       event.preventDefault();
       handlers.handleSearchShortcut();

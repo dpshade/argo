@@ -5,46 +5,63 @@ import { getOptimalGatewayHostname, fetchUndernames } from "../helpers/gatewaySe
 import { ARIO } from "@ar.io/sdk";
 import { initializeDocs, searchDocs } from "../helpers/docsModule";
 import { initializeGlossary, searchGlossary } from "../helpers/glossaryModule";
+import { getClipboardContent, isValidArweaveTransactionId } from "../helpers/clipboardValidator";
+import { searchDevices } from "../helpers/hyperbeamDevices";
+import { useAppState } from "../composables/useAppState";
+import { useKeyboardShortcuts } from "../composables/useKeyboardShortcuts";
+import HyperBeamLauncher from "./HyperBeamLauncher.vue";
 
 // No props needed - we use hardcoded special shortcuts
 
 const query = ref("");
 const emit = defineEmits(["search"]);
-const searchInput = ref(null);
-const showSuggestions = ref(true);
-const arnsDomains = ref([]);
-const hoveredIndex = ref(0);
-const lastKeyboardHoveredIndex = ref(0);
-const suggestionsRef = ref(null);
-const isFullScreen = ref(false);
-const isInputFocused = ref(false);
-const isMouseHovering = ref(false);
-const isKeyboardNavigating = ref(false);
-const isMobile = ref(window.innerWidth <= 768);
-const arnsProcessIds = ref({});
-const arnsUndernameSuggestions = ref([]);
-const lastFetchedArnsName = ref(null);
-const isLoadingUndernames = ref(false);
-const hoveredArnsName = ref(null);
-const displayedUnderamesForArns = ref(null); // Track which ArNS has undernames displayed
-const activePanel = ref("main"); // Track which panel has focus: "main" or "undernames"
-const undernameHoveredIndex = ref(0); // Track hovered index in undernames panel
-let undernamesFetchTimeout = null; // For debouncing undername fetches
-const optimalGateway = ref("ar.io"); // Default gateway, will be updated by Wayfinder
-const undernameCountCache = ref({}); // Cache of ArNS name -> undername count
-const undernameDataCache = ref({}); // Cache of ArNS name -> undername objects array
-const docsSuggestions = ref([]);
-const showGlossaryModal = ref(false);
-const selectedGlossaryTerm = ref(null);
+
+// Import app state for hashpath launch mode
+const { enterHashpathMode, showHashpathLauncher, exitHashpathMode } = useAppState();
 
 // Search modes - now supports multi-select
 const selectedFilters = ref(new Set(["all"]));
 const showModeModal = ref(false);
+
+// UI state
+const showSuggestions = ref(false);
+const isFullScreen = ref(false);
+const isInputFocused = ref(false);
+
+// Keyboard navigation state
+const hoveredIndex = ref(0);
+const lastKeyboardHoveredIndex = ref(0);
+const isKeyboardNavigating = ref(false);
+const isMouseHovering = ref(false);
+
+// Undernames panel state
+const activePanel = ref("main");
+const undernameHoveredIndex = ref(0);
+const displayedUnderamesForArns = ref(null);
+const arnsUndernameSuggestions = ref([]);
+const lastFetchedArnsName = ref(null);
+let undernamesFetchTimeout = null;
+
+// Modal state
+const showGlossaryModal = ref(false);
+const selectedGlossaryTerm = ref(null);
+
+// Data state
+const optimalGateway = ref("arweave.net");
+const arnsDomains = ref([]);
+const arnsProcessIds = ref({});
+const undernameCountCache = ref({});
+const undernameDataCache = ref({});
+
+// Refs for DOM elements
+const searchInput = ref(null);
+const suggestionsRef = ref(null);
 const searchModes = [
     { id: "all", label: "All" },
     { id: "arns", label: "ArNS" },
     { id: "docs", label: "Docs" },
     { id: "glossary", label: "Glossary" },
+    { id: "device", label: "Devices" },
 ];
 
 function toggleModeModal() {
@@ -175,6 +192,12 @@ const isTxId = computed(() => {
     return q.length === 43 && /^[a-zA-Z0-9_-]+$/.test(q);
 });
 
+// Check if device is mobile
+const isMobile = computed(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth <= 768;
+});
+
 const filteredSuggestions = computed(() => {
     const queryLower = query.value.toLowerCase().trim();
 
@@ -214,14 +237,31 @@ const filteredSuggestions = computed(() => {
         ];
     }
 
-    // Combine ArNS, glossary, and docs suggestions
+    // Combine ArNS, glossary, docs, and device suggestions
     const arns = arnsSuggestionsComp.value;
     const glossary = glossarySuggestionsComp.value;
     const docs = docsSuggestionsComp.value;
+    
+    // Add device suggestions in normal search mode (when query starts with ~)
+    let deviceSuggestions = [];
+    if (queryLower.startsWith('~') && queryLower.length >= 2) {
+        const devices = searchDevices(queryLower, 3);
+        deviceSuggestions = devices.map(device => ({
+            text: device.name,
+            description: device.description,
+            type: "device"
+        }));
+    }
 
     // Ensure source diversity: pick top result from each source type first
     const diverseResults = [];
     const usedUrls = new Set();
+    
+    // Add top device result if available (highest priority for hashpath queries)
+    if (deviceSuggestions.length > 0 && queryLower.startsWith('~')) {
+        diverseResults.push(deviceSuggestions[0]);
+        usedUrls.add(deviceSuggestions[0].text);
+    }
     
     // Add top ArNS result if available
     if (arns.length > 0) {
@@ -242,15 +282,21 @@ const filteredSuggestions = computed(() => {
     }
 
     // Merge remaining results with priority hierarchy
-    const allRemaining = [...arns.slice(1), ...docs.slice(1), ...glossary.slice(1)]
+    const allRemaining = [
+        ...deviceSuggestions.slice(1), 
+        ...arns.slice(1), 
+        ...docs.slice(1), 
+        ...glossary.slice(1)
+    ]
         .filter(item => {
             const urlKey = item.type === 'arns' ? item.text : 
-                          item.type === 'docs' ? item.fullUrl : item.text;
+                          item.type === 'docs' ? item.fullUrl : 
+                          item.type === 'device' ? item.text : item.text;
             return !usedUrls.has(urlKey);
         })
         .sort((a, b) => {
-            // Priority hierarchy: ArNS > docs > glossary
-            const priority = { arns: 3, docs: 2, glossary: 1 };
+            // Priority hierarchy: device > ArNS > docs > glossary
+            const priority = { device: 4, arns: 3, docs: 2, glossary: 1 };
             const priorityDiff = priority[b.type] - priority[a.type];
             
             if (priorityDiff !== 0) return priorityDiff;
@@ -290,6 +336,11 @@ const suggestions = computed(() => {
             }
             if (selectedFilters.value.has("glossary")) {
                 if (suggestion.type === "glossary") {
+                    return true;
+                }
+            }
+            if (selectedFilters.value.has("device")) {
+                if (suggestion.type === "device") {
                     return true;
                 }
             }
@@ -497,7 +548,49 @@ async function fetchAllUndernamesForArnsResults(arnsSuggestions) {
     console.log('[Undernames] Desktop mode - skipping background undername loading');
 }
 
+// NEW: Tab key handler for empty input (works when focused)
+async function handleTabKey() {
+    // Only handle Tab when search input is empty
+    if (query.value.trim() !== '') {
+        return; // Let browser handle normal Tab behavior
+    }
+
+    console.log('Tab key pressed with empty input - checking clipboard...');
+    
+    const clipboardText = await getClipboardContent();
+    if (!clipboardText) {
+        console.log('No clipboard content available');
+        return;
+    }
+
+    if (isValidArweaveTransactionId(clipboardText)) {
+        // Auto-paste transaction ID
+        const txId = clipboardText.trim();
+        console.log('Valid transaction ID found in clipboard:', txId);
+
+        // Update the input field
+        query.value = txId;
+
+        // Focus the input and show suggestions
+        nextTick(() => {
+            focusInput();
+            showSuggestions.value = true;
+        });
+    } else {
+        // Enter hashpath launch mode
+        console.log('Invalid transaction ID - entering hashpath launch mode');
+        enterHashpathMode();
+    }
+}
+
 function onKeyDown(event) {
+    // Handle Tab key for empty input (regardless of focus state)
+    if (event.key === "Tab" && query.value.trim() === '') {
+        event.preventDefault();
+        handleTabKey();
+        return;
+    }
+
     if (!isMobile.value && event.key === "ArrowLeft") {
         // Left arrow: instantly close undernames panel (but keep data cached)
         event.preventDefault();
@@ -591,7 +684,7 @@ function onKeyDown(event) {
 
         isMouseHovering.value = false;
         scrollSuggestionIntoView();
-    } else if (event.key === "Enter" && hoveredIndex.value !== -1) {
+    } else if (event.key === "Enter" && suggestions.value.length > 0) {
         event.preventDefault();
         if (
             activePanel.value === "undernames" &&
@@ -602,7 +695,24 @@ function onKeyDown(event) {
                 arnsUndernameSuggestions.value[undernameHoveredIndex.value];
             window.open(undername.url, "_blank");
         } else {
-            onSubmit(event);
+            // Select the top suggestion (or hovered one if keyboard navigation is active)
+            const targetIndex = isKeyboardNavigating.value && hoveredIndex.value >= 0 ? hoveredIndex.value : 0;
+            const selectedSuggestion = suggestions.value[targetIndex];
+            
+            if (selectedSuggestion) {
+                const action = handleSuggestionAction[selectedSuggestion.type];
+                if (action) {
+                    // Pass the full suggestion object for shortcuts, docs, and glossary, just text for others
+                    action(
+                        ["shortcut", "docs", "glossary", "device"].includes(
+                            selectedSuggestion.type,
+                        )
+                            ? selectedSuggestion
+                            : selectedSuggestion.text,
+                        selectedSuggestion
+                    );
+                }
+            }
         }
     } else if (event.key === "Escape") {
         event.preventDefault();
@@ -739,6 +849,7 @@ function getTagLabel(type) {
     const tagMap = {
         arns: "ArNS",
         arns_undername: "Under_name",
+        device: "Device",
         shortcut: "TxID",
         tx: "TxID",
         txData: "Data",
@@ -751,6 +862,12 @@ function getTagLabel(type) {
 
 function exitFullScreen() {
     isFullScreen.value = false;
+}
+
+// Handle exiting HyperBEAM launcher mode
+function handleLauncherExit() {
+    exitHashpathMode();
+    focusInput();
 }
 
 function searchRelatedTerm(term) {
@@ -791,6 +908,14 @@ watch(suggestions, (newSuggestions, oldSuggestions) => {
         lastKeyboardHoveredIndex.value = 0;
     }
 });
+
+// Set up keyboard shortcuts with Tab handler
+const handlers = {
+    handleSearchShortcut: focusInput,
+    handleTabKey
+};
+
+useKeyboardShortcuts(handlers);
 
 onMounted(async () => {
     focusInput();
@@ -916,7 +1041,16 @@ watch(suggestions, (newSuggestions) => {
 defineExpose({ focusInput });
 </script>
 <template>
+    <!-- HyperBEAM Launcher Component -->
+    <HyperBeamLauncher
+        v-if="showHashpathLauncher"
+        @exit="handleLauncherExit"
+        @launch="handleLauncherExit"
+    />
+
+    <!-- Normal Search Form -->
     <form
+        v-else
         @submit="onSubmit"
         class="search-bar"
         :class="{ 'full-screen': isFullScreen }"
@@ -1384,7 +1518,7 @@ button[type="submit"] {
     transition:
         background-color 0.3s,
         border-radius 0.3s ease;
-    min-width: 80px;
+    min-width: 85px;
 }
 
 button.with-suggestions {
@@ -2404,5 +2538,73 @@ button:hover {
 
 .undername-item strong {
     font-size: 0.9rem;
+}
+
+/* HyperBEAM Mode Indicator */
+.hyperbeam-mode-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    margin-top: 8px;
+    background-color: var(--button-bg);
+    color: white;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    animation: slideDown 0.3s ease-out;
+}
+
+.hyperbeam-mode-indicator svg {
+    flex-shrink: 0;
+}
+
+/* Hashpath mode input styling */
+.hashpath-mode {
+    border-color: var(--button-bg) !important;
+    background-color: var(--input-focus-bg) !important;
+}
+
+/* Device suggestion styling */
+.tag-device {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+}
+
+.suggestion.device .suggestion-text {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.suggestion.device .suggestion-description {
+    color: var(--text-color);
+    opacity: 0.8;
+    font-size: 0.8rem;
+}
+
+/* Device suggestion hover state */
+.suggestion.device.hovered,
+.suggestion.device:hover {
+    background-color: var(--button-bg);
+}
+
+.suggestion.device.hovered .tag-device,
+.suggestion.device:hover .tag-device {
+    background-color: white;
+    color: var(--button-bg);
+    font-weight: 700;
+    border: 2px solid white;
+    padding: 2px 10px;
+}
+
+/* Animation for feedback elements */
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 </style>
