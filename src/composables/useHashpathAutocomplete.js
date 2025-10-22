@@ -4,7 +4,7 @@
  */
 
 import { ref, computed, watch, nextTick } from "vue";
-import { fetchHyperbeamDevices, searchDevices, isValidHashpath } from "@/helpers/hyperbeamDevices";
+import { fetchHyperbeamDevices, searchDevices, isValidHashpath, searchOperations, deviceHasOperations } from "@/helpers/hyperbeamDevices";
 
 export function useHashpathAutocomplete() {
   const hashpathInput = ref("");
@@ -26,83 +26,191 @@ export function useHashpathAutocomplete() {
     return currentSegment.value.startsWith("~");
   });
 
+  // Extract the device name from the path (for operation autocomplete)
+  const currentDevice = computed(() => {
+    const beforeCursor = hashpathInput.value.substring(0, cursorPosition.value);
+    const segments = beforeCursor.split("/").filter(s => s.length > 0);
+
+    // Find the last device segment (starts with ~)
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (segments[i].startsWith("~")) {
+        return segments[i];
+      }
+    }
+    return null;
+  });
+
+  // Check if we're at the operation level (typing after a device name)
+  const isOperationSegment = computed(() => {
+    const beforeCursor = hashpathInput.value.substring(0, cursorPosition.value);
+    const segments = beforeCursor.split("/").filter(s => s.length > 0);
+
+    // We're at operation level if:
+    // 1. Current segment doesn't start with ~ (not a device)
+    // 2. There's a device segment before this one
+    // 3. We have a device in the path
+
+    // Special case: if path ends with / after a device (e.g., /~json@1.0/)
+    // and cursor is at the end, we're ready to show operations
+    if (beforeCursor.endsWith('/') && currentDevice.value && segments.length >= 1) {
+      return true;
+    }
+
+    // Normal case: typing in a segment after a device
+    if (segments.length < 2) return false;
+    if (currentSegment.value.startsWith("~")) return false;
+
+    // Check if there's a device in the path
+    return currentDevice.value !== null;
+  });
+
+  // Operation suggestions based on current device and operation query
+  const operationSuggestions = computed(() => {
+    console.log('[Autocomplete] operationSuggestions computed:', {
+      isOperationSegment: isOperationSegment.value,
+      currentDevice: currentDevice.value,
+      currentSegment: currentSegment.value
+    });
+
+    if (!isOperationSegment.value || !currentDevice.value) {
+      console.log('[Autocomplete] Early return: not operation segment or no device');
+      return [];
+    }
+
+    const device = currentDevice.value;
+    const query = currentSegment.value;
+
+    // Check if device has operations
+    const hasOps = deviceHasOperations(device);
+    console.log('[Autocomplete] Device has operations?', device, hasOps);
+    if (!hasOps) return [];
+
+    // If no query, show all operations for the device
+    if (!query || query.length === 0) {
+      const ops = searchOperations(device, "", 10);
+      console.log('[Autocomplete] Empty query, showing all operations:', ops.length);
+      return ops.map(op => ({
+        name: op.name,
+        description: op.description,
+        params: op.params || [],
+        type: "operation",
+        device: device
+      }));
+    }
+
+    // Search operations by query
+    const ops = searchOperations(device, query, 10);
+    console.log('[Autocomplete] Search results for query:', query, ops.length);
+    return ops.map(op => ({
+      name: op.name,
+      description: op.description,
+      params: op.params || [],
+      type: "operation",
+      device: device
+    }));
+  });
+
   // Update suggestions when input or cursor position changes
   watch([hashpathInput, cursorPosition], async () => {
     const segment = currentSegment.value;
-    
-    // Only show suggestions for device segments
-    if (!segment || !isDeviceSegment.value) {
-      showDropdown.value = false;
-      suggestions.value = [];
-      return;
+
+    console.log('[Autocomplete] Watcher triggered:', {
+      hashpathInput: hashpathInput.value,
+      cursorPosition: cursorPosition.value,
+      segment,
+      currentDevice: currentDevice.value,
+      isOperationSegment: isOperationSegment.value
+    });
+
+    // Priority 1: Check for operation suggestions
+    if (isOperationSegment.value && currentDevice.value) {
+      const opSuggestions = operationSuggestions.value;
+      console.log('[Autocomplete] Operation suggestions:', opSuggestions.length, opSuggestions);
+      if (opSuggestions.length > 0) {
+        suggestions.value = opSuggestions;
+        showDropdown.value = true;
+        selectedIndex.value = 0;
+        return;
+      }
     }
 
-    // Don't show suggestions for very short queries
-    if (segment.length < 2) {
-      showDropdown.value = false;
-      suggestions.value = [];
-      return;
+    // Priority 2: Check for device suggestions
+    if (segment) {
+      // Prepend ~ if user didn't type it (for convenience)
+      const searchQuery = segment.startsWith('~') ? segment : `~${segment}`;
+
+      // Don't show suggestions for very short queries
+      if (segment.length < 1) {
+        showDropdown.value = false;
+        suggestions.value = [];
+        return;
+      }
+
+      // Search for matching devices
+      const matches = searchDevices(searchQuery, 10);
+
+      if (matches.length > 0) {
+        suggestions.value = matches.map(device => ({
+          ...device,
+          type: "device"
+        }));
+        showDropdown.value = true;
+        selectedIndex.value = 0;
+        return;
+      }
     }
 
-    // Search for matching devices
-    const matches = searchDevices(segment, 10);
-    
-    if (matches.length > 0) {
-      suggestions.value = matches;
-      showDropdown.value = true;
-      selectedIndex.value = 0;
-    } else {
-      showDropdown.value = false;
-      suggestions.value = [];
-    }
+    // No suggestions
+    showDropdown.value = false;
+    suggestions.value = [];
   });
 
-  // Accept suggestion with smart boundary detection
-  function acceptSuggestion(deviceName) {
+  // Accept suggestion with smart boundary detection (handles both devices and operations)
+  function acceptSuggestion(suggestionText, suggestionType = "device") {
     const input = hashpathInput.value;
     const cursor = cursorPosition.value;
 
-    // Find device boundary at cursor (look backwards for '/')
-    let deviceStart = 0;
+    // Find segment boundary at cursor (look backwards for '/')
+    let segmentStart = 0;
     for (let i = cursor - 1; i >= 0; i--) {
       if (input[i] === '/') {
-        deviceStart = i + 1;
+        segmentStart = i + 1;
         break;
       }
     }
 
-    // Find end of current device (look forwards for '/' or end of string)
-    let deviceEnd = input.length;
+    // Find end of current segment (look forwards for '/' or end of string)
+    let segmentEnd = input.length;
     for (let i = cursor; i < input.length; i++) {
       if (input[i] === '/') {
-        deviceEnd = i;
+        segmentEnd = i;
         break;
       }
     }
 
-    // Build the new path with device + trailing /
-    const beforeDevice = input.substring(0, deviceStart);
-    const afterDevice = input.substring(deviceEnd);
+    // Build the new path with segment + trailing /
+    const beforeSegment = input.substring(0, segmentStart);
+    const afterSegment = input.substring(segmentEnd);
 
-    // Add trailing / after device (unless there's already one)
-    const deviceWithSlash = afterDevice.startsWith('/') ? deviceName : `${deviceName}/`;
+    // Add trailing / after segment (unless there's already one)
+    const segmentWithSlash = afterSegment.startsWith('/') ? suggestionText : `${suggestionText}/`;
 
     // Build new input
-    let newInput = beforeDevice + deviceWithSlash + afterDevice;
+    let newInput = beforeSegment + segmentWithSlash + afterSegment;
 
     // Track if we add leading slash for cursor positioning
     let addedLeadingSlash = false;
 
-    // Ensure path starts with / if it's the first device
-    if (!newInput.startsWith('/')) {
+    // Ensure path starts with / if it's the first segment and it's a device
+    if (!newInput.startsWith('/') && suggestionType === "device") {
       newInput = '/' + newInput;
       addedLeadingSlash = true;
     }
 
-    // Calculate cursor position after the inserted device and trailing /
+    // Calculate cursor position after the inserted segment and trailing /
     const newCursorPosition = (addedLeadingSlash ? 1 : 0) +
-                              beforeDevice.length +
-                              deviceWithSlash.length;
+                              beforeSegment.length +
+                              segmentWithSlash.length;
 
     hashpathInput.value = newInput;
     showDropdown.value = false;
@@ -136,7 +244,10 @@ export function useHashpathAutocomplete() {
       case "Enter":
         event.preventDefault();
         if (suggestions.value[selectedIndex.value]) {
-          const result = acceptSuggestion(suggestions.value[selectedIndex.value].name);
+          const suggestion = suggestions.value[selectedIndex.value];
+          const suggestionText = suggestion.name;
+          const suggestionType = suggestion.type || "device";
+          const result = acceptSuggestion(suggestionText, suggestionType);
           // Update cursor position after Vue reactivity
           nextTick(() => {
             cursorPosition.value = result.newCursorPosition;
@@ -225,8 +336,11 @@ export function useHashpathAutocomplete() {
     isLoading,
     currentSegment,
     isDeviceSegment,
+    isOperationSegment,
+    currentDevice,
     isValidPath,
-    
+    operationSuggestions,
+
     // Methods
     acceptSuggestion,
     handleKeyDown,

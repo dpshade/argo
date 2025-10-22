@@ -3,6 +3,7 @@
  */
 
 import { HYPERBEAM_CONFIG, FALLBACK_DEVICES, DEVICE_DESCRIPTIONS } from '@/config/hyperbeam'
+import { getDeviceOperations, searchDeviceOperations, hasOperations } from '@/config/hyperbeamDeviceCatalog'
 
 let deviceCache = null
 let isFetching = false
@@ -216,4 +217,33 @@ export function getCacheStatus() {
         deviceCount: deviceCache ? deviceCache.length : 0,
         hasFetchPromise: !!fetchPromise
     }
+}
+
+/**
+ * Gets all operations for a specific device
+ * @param {string} deviceName - Device name (e.g., '~json@1.0')
+ * @returns {Array<Object>|null} - Array of operation objects or null
+ */
+export function getOperations(deviceName) {
+    return getDeviceOperations(deviceName)
+}
+
+/**
+ * Searches operations for a device by query
+ * @param {string} deviceName - Device name (e.g., '~json@1.0')
+ * @param {string} query - Search query
+ * @param {number} limit - Maximum results to return
+ * @returns {Array<{name: string, description: string, params: Array}>} - Matching operations
+ */
+export function searchOperations(deviceName, query, limit = 10) {
+    return searchDeviceOperations(deviceName, query, limit)
+}
+
+/**
+ * Checks if a device has operations defined in the catalog
+ * @param {string} deviceName - Device name (e.g., '~json@1.0')
+ * @returns {boolean} - True if device has operations
+ */
+export function deviceHasOperations(deviceName) {
+    return hasOperations(deviceName)
 }

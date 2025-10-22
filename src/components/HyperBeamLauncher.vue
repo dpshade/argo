@@ -15,53 +15,53 @@ const hashpathCursorPosition = ref(0);
 const hoveredIndex = ref(0);
 const inputRef = ref(null);
 
-// Device suggestions based on current segment at cursor
+// All suggestions (devices + operations) based on current segment at cursor
 const deviceSuggestions = computed(() => {
-    if (query.value.length >= 1) {
-        // Extract current segment at cursor position
-        const beforeCursor = query.value.substring(0, hashpathCursorPosition.value);
-        const segments = beforeCursor.split('/');
-        const currentSegment = segments[segments.length - 1] || '';
+    // Simply use composable suggestions - it handles all the filtering logic
+    const suggestions = hashpathAutocomplete.suggestions.value;
 
-        // Check if current segment is a potential txID (don't autocomplete those)
-        const looksLikeTxId = currentSegment.length >= 10 &&
-                             /^[a-zA-Z0-9_-]+$/.test(currentSegment) &&
-                             !currentSegment.startsWith('~');
+    if (suggestions.length > 0) {
+        return suggestions.map(suggestion => {
+            // Format params display for operations
+            const paramsDisplay = suggestion.params && suggestion.params.length > 0
+                ? ` (params: ${suggestion.params.slice(0, 3).join(', ')}${suggestion.params.length > 3 ? '...' : ''})`
+                : '';
 
-        // Only show device suggestions if not typing a txID
-        if (!looksLikeTxId && currentSegment && currentSegment.length >= 1) {
-            // Prepend ~ if not already present for search
-            const searchQuery = currentSegment.startsWith('~')
-                ? currentSegment
-                : `~${currentSegment}`;
-
-            const devices = searchDevices(searchQuery.toLowerCase(), 8);
-            return devices.map(device => ({
-                text: device.name,
-                description: device.description,
-                type: "device"
-            }));
-        }
+            return {
+                text: suggestion.name,
+                description: suggestion.description + paramsDisplay,
+                type: suggestion.type || "device",
+                device: suggestion.device || null
+            };
+        });
     }
+
     return [];
 });
 
 // Handle input changes and track cursor position
 function handleInput(event) {
-    query.value = event.target.value;
-    hashpathCursorPosition.value = event.target.selectionStart || 0;
+    const newValue = event.target.value;
+    const newCursor = event.target.selectionStart || 0;
 
-    // Sync with composable for autocomplete logic
-    hashpathAutocomplete.hashpathInput.value = event.target.value;
-    hashpathAutocomplete.cursorPosition.value = event.target.selectionStart || 0;
+    // Update local state
+    query.value = newValue;
+    hashpathCursorPosition.value = newCursor;
+
+    // Sync with composable IMMEDIATELY for reactive autocomplete
+    hashpathAutocomplete.hashpathInput.value = newValue;
+    hashpathAutocomplete.cursorPosition.value = newCursor;
 }
 
 // Handle cursor position changes (for click/selection)
 function handleCursorChange(event) {
-    hashpathCursorPosition.value = event.target.selectionStart || 0;
+    const newCursor = event.target.selectionStart || 0;
 
-    // Sync with composable
-    hashpathAutocomplete.cursorPosition.value = event.target.selectionStart || 0;
+    // Update local state
+    hashpathCursorPosition.value = newCursor;
+
+    // Sync with composable IMMEDIATELY
+    hashpathAutocomplete.cursorPosition.value = newCursor;
 }
 
 // Handle keyboard navigation
@@ -72,7 +72,7 @@ function handleKeyDown(event) {
 
         const selectedSuggestion = deviceSuggestions.value[hoveredIndex.value] || deviceSuggestions.value[0];
 
-        if (selectedSuggestion && selectedSuggestion.type === 'device') {
+        if (selectedSuggestion) {
             selectDevice(selectedSuggestion);
         }
         return;
@@ -103,23 +103,38 @@ function handleKeyDown(event) {
                 ? deviceSuggestions.value.length - 1
                 : hoveredIndex.value - 1;
         }
+
+        // Scroll the selected item into view
+        nextTick(() => {
+            const suggestionElements = document.querySelectorAll('.suggestion-item');
+            if (suggestionElements[hoveredIndex.value]) {
+                suggestionElements[hoveredIndex.value].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest'
+                });
+            }
+        });
     }
 }
 
-// Select a device and apply path-aware replacement
+// Select a device/operation and apply path-aware replacement
 function selectDevice(suggestion) {
-    console.log('Device selected in hashpath mode:', suggestion.text);
+    console.log('Suggestion selected in hashpath mode:', suggestion.text, suggestion.type);
 
     // Update composable state with current input and cursor
     hashpathAutocomplete.hashpathInput.value = query.value;
     hashpathAutocomplete.cursorPosition.value = hashpathCursorPosition.value;
 
-    // Perform smart replacement
-    const result = hashpathAutocomplete.acceptSuggestion(suggestion.text);
+    // Perform smart replacement with type information
+    const result = hashpathAutocomplete.acceptSuggestion(suggestion.text, suggestion.type);
 
     // Update query with the new path
     query.value = result.newInput;
     hashpathCursorPosition.value = result.newCursorPosition;
+
+    // IMPORTANT: Sync new cursor position back to composable immediately
+    // This ensures the composable knows we're at the end of the path
+    hashpathAutocomplete.cursorPosition.value = result.newCursorPosition;
 
     // Update cursor position in the input field
     nextTick(() => {
@@ -201,21 +216,25 @@ defineExpose({
             class="suggestions-dropdown"
         >
             <div
-                v-for="(device, index) in deviceSuggestions"
-                :key="device.text"
+                v-for="(suggestion, index) in deviceSuggestions"
+                :key="suggestion.text"
                 :class="['suggestion-item', { hovered: index === hoveredIndex }]"
-                @click="selectDevice(device)"
+                @click="selectDevice(suggestion)"
                 @mousemove="hoveredIndex = index"
             >
                 <div class="suggestion-main">
                     <div class="suggestion-text-wrapper">
                         <div class="suggestion-title-row">
-                            <strong>{{ device.text }}</strong>
+                            <strong>{{ suggestion.text }}</strong>
                         </div>
-                        <div class="suggestion-description">{{ device.description }}</div>
+                        <div class="suggestion-description">{{ suggestion.description }}</div>
                     </div>
                 </div>
-                <span class="result-tag tag-device">Device</span>
+                <span
+                    :class="['result-tag', suggestion.type === 'operation' ? 'tag-operation' : 'tag-device']"
+                >
+                    {{ suggestion.type === 'operation' ? 'Operation' : 'Device' }}
+                </span>
             </div>
         </div>
 
@@ -377,6 +396,11 @@ defineExpose({
 .tag-device {
     background-color: #e8f5e9;
     color: #2e7d32;
+}
+
+.tag-operation {
+    background-color: #e3f2fd;
+    color: #1565c0;
 }
 
 .suggestion-item.hovered .result-tag,

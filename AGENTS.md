@@ -38,6 +38,7 @@ src/
 │   ├── BangEditor.vue
 │   ├── Explorer.vue
 │   ├── HeadlessRedirect.vue
+│   ├── HyperBeamLauncher.vue  # NEW: HyperBEAM hashpath launcher
 │   ├── KeyboardShortcuts.vue
 │   ├── LoadingScreen.vue
 │   ├── ResultDisplay.vue
@@ -46,14 +47,20 @@ src/
 ├── composables/         # Vue composables
 │   ├── useAppState.js
 │   ├── useBangs.js
+│   ├── useHashpathAutocomplete.js  # NEW: HyperBEAM autocomplete logic
 │   ├── useKeyboardShortcuts.js
 │   ├── useSearch.js
 │   └── useWallet.js
+├── config/             # Configuration
+│   ├── hyperbeam.js
+│   └── hyperbeamDeviceCatalog.js  # NEW: Device operations catalog
 ├── helpers/            # Utility functions
 │   ├── arnsResolver.js
 │   ├── arweaveWallet.js
 │   ├── bangHelpers.js
 │   ├── cacheModule.js
+│   ├── clipboardValidator.js
+│   ├── hyperbeamDevices.js  # NEW: HyperBEAM device utilities
 │   ├── searchLogic.js
 │   └── walletManager.js
 ├── assets/             # Static assets
@@ -78,11 +85,17 @@ src/
 - Undername support (mobile inline, desktop side panel)
 - Real-time content filtering and suggestions
 
-### Launch Features  
+### Launch Features
 - Transaction shortcuts (tx, data, raw, msg)
 - Automatic transaction ID detection
 - Direct ArNS navigation
 - Headless mode support
+- **HyperBEAM Launcher** with intelligent autocomplete
+  - Device name suggestions (~json@1.0, ~cron@1.0, etc.)
+  - Operation/key autocomplete for devices (serialize, deserialize, etc.)
+  - Path-aware completion with cursor tracking
+  - Parameter hints for operations
+  - Support for 13 devices: 5 codecs + 8 core devices
 
 ### User Experience
 - Dark mode toggle
@@ -91,7 +104,12 @@ src/
 
 ### Future Features (Coming Soon)
 - Launch/Find mode split for focused workflows
-- Hyperbeam integration for hashpath creation and device calling
+- **Enhanced HyperBEAM Integration**
+  - Dynamic operation fetching from `/~device@version/info/keys` endpoints
+  - Auto-generate device catalog from YAML specs when device_yml branch merges
+  - Runtime parameter validation from device schemas
+  - HTTP method indicators (GET/POST) for operations
+  - Usage examples from device recipes
 
 ## Development Guidelines
 - Use existing composables for state management

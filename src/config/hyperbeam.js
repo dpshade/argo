@@ -83,25 +83,35 @@ export const FALLBACK_DEVICES = [
 
 /**
  * Device descriptions for better UX
+ * Based on HyperBEAM README and device catalog analysis
  */
 export const DEVICE_DESCRIPTIONS = {
-    '~compute@1.0': 'Computational unit device',
-    '~json@1.0': 'JSON codec and parser',
-    '~lua@5.3a': 'Lua interpreter runtime',
-    '~wasm64@1.0': 'WebAssembly 64-bit runtime',
-    '~cache@1.0': 'In-memory caching device',
-    '~router@1.0': 'Request routing device',
-    '~serialize@1.0': 'Data serialization',
-    '~deserialize@1.0': 'Data deserialization',
-    '~http@1.0': 'HTTP client/server',
-    '~https@1.0': 'HTTPS secure client/server',
-    '~fs@1.0': 'File system operations',
-    '~db@1.0': 'Database operations',
-    '~auth@1.0': 'Authentication and authorization',
-    '~crypto@1.0': 'Cryptographic operations',
-    '~hash@1.0': 'Hashing functions',
-    '~encode@1.0': 'Data encoding',
-    '~decode@1.0': 'Data decoding',
-    '~compress@1.0': 'Data compression',
-    '~decompress@1.0': 'Data decompression'
+    // Codec devices
+    '~json@1.0': 'JSON codec for serialization and deserialization',
+    '~ans104@1.0': 'ANS-104 bundle encoding and verification',
+    '~httpsig@1.0': 'HTTP signature generation and verification (RFC-9421)',
+    '~structured@1.0': 'Structured field encoding/decoding',
+    '~flat@1.0': 'Flat file format codec',
+
+    // Core devices
+    '~meta@1.0': 'Node configuration, build info, and metadata',
+    '~relay@1.0': 'Message relay between nodes and HTTP network',
+    '~wasm64@1.0': 'WebAssembly 64-bit runtime (WAMR)',
+    '~json-iface@1.0': 'AOS 2.0 JSON to HyperBEAM HTTP translation',
+    '~compute-lite@1.0': 'Lightweight WASM executor for legacy AO processes',
+    '~snp@1.0': 'Trusted Execution Environment (TEE) attestation',
+    '~p4@1.0': 'Pre/post-processor for hardware monetization',
+    '~simple-pay@1.0': 'Flat-fee pricing device for p4@1.0',
+    '~faff@1.0': 'Access control pricing/ledger for p4@1.0',
+    '~scheduler@1.0': 'Linear hashpath assignment for deterministic ordering',
+    '~stack@1.0': 'Execute ordered set of devices over same inputs',
+    '~process@1.0': 'Persistent shared executions with customizable scheduler',
+    '~cron@1.0': 'Schedule messages for one-time or recurring execution',
+    '~cache@1.0': 'In-memory caching for messages and state',
+    '~message@1.0': 'Core message operations (get, set, commit, keys)',
+    '~router@1.0': 'Message routing and path resolution',
+
+    // Compute devices
+    '~lua@5.3a': 'Lua 5.3 interpreter runtime',
+    '~compute@1.0': 'Computational unit device'
 }

@@ -43,6 +43,24 @@ Intelligent transaction ID recognition:
 - Automatically shows transaction shortcuts (tx, data, raw, msg)
 - One-click access to different transaction views
 
+**HyperBEAM Launcher**
+Build and execute HyperBEAM hashpaths with intelligent autocomplete:
+- Device name suggestions (~json@1.0, ~cron@1.0, ~process@1.0, etc.)
+- Operation autocomplete for each device (serialize, deserialize, compute, etc.)
+- Parameter hints showing required/optional parameters
+- Path-aware cursor tracking for complex hashpaths
+- Support for 13 devices:
+  - **Codec Devices**: json@1.0, ans104@1.0, httpsig@1.0, structured@1.0, flat@1.0
+  - **Core Devices**: cron@1.0, cache@1.0, meta@1.0, message@1.0, process@1.0, scheduler@1.0, relay@1.0, router@1.0
+
+**Example HyperBEAM Paths:**
+```
+/~json@1.0/serialize/           # Serialize message to JSON
+/~cron@1.0/once/                # Schedule one-time execution
+/txid/~json@1.0/deserialize/    # Deserialize transaction data
+/~process@1.0/compute/          # Execute process computation
+```
+
 ### Advanced Features
 
 **Headless Mode**
@@ -62,12 +80,18 @@ Responsive design that works seamlessly across all devices.
 1. **Filter Selection**: Click the filter icon to select one or more filters (ArNS, Docs, Glossary) or choose "All"
 2. **Direct Navigation**: Type an ArNS name like `ardrive` and press Enter
 3. **Transaction Lookup**: Paste any 43-44 character transaction ID to see shortcuts (tx, data, raw, msg)
-4. **Undername Access**:
+4. **HyperBEAM Launcher** (press `Ctrl+H` or click HyperBEAM button):
+   - Type `/~` to see device suggestions
+   - Select a device with Tab or Enter
+   - Continue typing to see operation suggestions
+   - Build complex paths: `/~json@1.0/serialize/`
+   - Press Enter to launch the hashpath at forward.computer
+5. **Undername Access**:
    - **Mobile**: Scroll through undernames shown inline beneath ArNS domains
    - **Desktop**: Use arrow keys (← →) to navigate between main suggestions and undername panel
-5. **Documentation**: Use filters to quickly find docs and glossary terms
-6. **Search**: Type anything else for general web search
-7. **Keyboard Navigation**: Use arrow keys to navigate suggestions, Enter to select
+6. **Documentation**: Use filters to quickly find docs and glossary terms
+7. **Search**: Type anything else for general web search
+8. **Keyboard Navigation**: Use arrow keys to navigate suggestions, Enter to select
 
 ## Why Argo?
 
@@ -117,8 +141,14 @@ Built with:
 ### Launch/Find Mode Split
 Separate input modes for discovery vs. direct launching, providing more focused user experiences for different use cases.
 
-### Hyperbeam Integration
-Add Hyperbeam input mode for creating hashpaths (Hyperbeam HTTP URLs) that can call various devices and enable advanced permaweb interactions.
+### Enhanced HyperBEAM Integration
+Build on the current HyperBEAM launcher with:
+- **Dynamic Operation Fetching**: Query `/~device@version/info/keys` endpoints for real-time operation discovery
+- **YAML Spec Integration**: Auto-generate device catalog from HyperBEAM YAML specifications when device_yml branch merges
+- **Parameter Validation**: Runtime validation using device schemas
+- **HTTP Method Indicators**: Show GET/POST badges for operations
+- **Usage Examples**: Display recipe examples from device specs
+- **More Devices**: Expand beyond the current 13 devices to cover all HyperBEAM devices
 
 ### Enhanced Filtering
 Improve filter capabilities with more granular options and smarter content categorization.

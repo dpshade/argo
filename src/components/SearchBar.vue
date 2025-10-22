@@ -515,10 +515,11 @@ async function handleTabKey() {
     }
 
     console.log('Tab key pressed with empty input - checking clipboard...');
-    
+
     const clipboardText = await getClipboardContent();
     if (!clipboardText) {
-        console.log('No clipboard content available');
+        console.log('No clipboard content available - entering hashpath launch mode');
+        enterHashpathMode();
         return;
     }
 
